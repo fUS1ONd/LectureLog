@@ -2,7 +2,7 @@
 
 **Goal:** Снести текущий `pkg/audiopreproc`, сделать простой пакет: бьёт аудио на чанки по 60 сек, отправляет в Resemble Enhance через HuggingFace Space API, склеивает обратно. Больше ничего.
 
-**Architecture:** Go-пакет `pkg/audiopreproc`. Единственная задача — шумоподавление. Нарезка/склейка чанков через ffmpeg. Обработка через Python `gradio_client` → HF Space API (ResembleAI/resemble-enhance). Нормализация, вырезание тишины, пресеты, TimeMap — всё убираем из этого пакета.
+**Architecture:** Go-пакет `pkg/audiopreproc`. Единственная задача — шумоподавление. Нарезка/склейка чанков через ffmpeg. Перед отправкой в API вырезаем длинные паузы (тишину) из каждого чанка. Обработка через Python `gradio_client` → HF Space API (ResembleAI/resemble-enhance). Нормализация, пресеты, TimeMap — убраны из этого пакета.
 
 **Tech Stack:** Go 1.25, ffmpeg (`exec.Command`), Python 3.11+ + `gradio_client` (для вызова HF API), `testify` для тестов
 
@@ -33,6 +33,10 @@ input (любой формат)
 ffmpeg: нарезка на чанки по 60 сек (WAV 44.1kHz mono)
   │
   ▼
+ffmpeg: вырезание тишины из чанков
+  │  (silencedetect/atrim, дефолт: -35dB, 5s)
+  │
+  ▼
 Python gradio_client: отправка каждого чанка в HF Space API
   │  (ResembleAI/resemble-enhance, endpoint /predict, denoise only)
   │
@@ -46,7 +50,9 @@ ffmpeg: склейка обработанных чанков → output
 pkg/audiopreproc/
 ├── audiopreproc.go        # Process(ctx, input, output) — единственная публичная функция
 ├── audiopreproc_test.go   # Тесты
-├── ffmpeg.go              # runFFmpeg, CheckFFmpeg
+├── ffmpeg.go              # runFFmpeg, CheckFFmpeg, split/concat, getAudioDuration
+├── silence.go             # detect/remove silence для WAV-чанков
+├── silence_test.go        # Тесты детекции и вырезания тишины
 ├── scripts/
 │   └── denoise.py         # Python-скрипт для вызова HF API
 └── testdata/              # Тестовые аудио (в .gitignore)

@@ -33,9 +33,13 @@ func Process(ctx context.Context, input, output string) error {
 	defer os.RemoveAll(tmpDir)
 
 	inDir := filepath.Join(tmpDir, "in")
+	trimmedDir := filepath.Join(tmpDir, "trimmed")
 	outDir := filepath.Join(tmpDir, "out")
 	if err := os.MkdirAll(inDir, 0o755); err != nil {
 		return fmt.Errorf("создание in-директории: %w", err)
+	}
+	if err := os.MkdirAll(trimmedDir, 0o755); err != nil {
+		return fmt.Errorf("создание trimmed-директории: %w", err)
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return fmt.Errorf("создание out-директории: %w", err)
@@ -44,13 +48,16 @@ func Process(ctx context.Context, input, output string) error {
 	if err := splitChunks(ctx, input, inDir, 60); err != nil {
 		return err
 	}
+	if err := removeSilenceFromChunks(ctx, inDir, trimmedDir, DefaultSilenceParams); err != nil {
+		return fmt.Errorf("вырезание тишины из чанков: %w", err)
+	}
 
 	scriptPath, err := denoiseScriptPath()
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, "python3", scriptPath, inDir, outDir)
+	cmd := exec.CommandContext(ctx, "python3", scriptPath, trimmedDir, outDir)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

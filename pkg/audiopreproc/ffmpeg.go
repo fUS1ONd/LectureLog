@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -98,4 +99,32 @@ func concatChunks(ctx context.Context, inDir, output string) error {
 	}
 
 	return nil
+}
+
+// getAudioDuration — возвращает длительность аудио в секундах через ffprobe.
+func getAudioDuration(ctx context.Context, path string) (float64, error) {
+	cmd := exec.CommandContext(ctx,
+		"ffprobe",
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "csv=p=0",
+		path,
+	)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return 0, fmt.Errorf("ffprobe: %w: %s", err, stderr.String())
+	}
+
+	value := strings.TrimSpace(stdout.String())
+	dur, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("парсинг длительности %q: %w", value, err)
+	}
+
+	return dur, nil
 }
