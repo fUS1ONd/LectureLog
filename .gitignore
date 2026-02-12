@@ -1,0 +1,20 @@
+# Бинарники
+/bin/
+*.exe
+
+# Временные файлы
+*.tmp
+*.swp
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Go
+/vendor/
+
+# Тестовые аудиофайлы (синтетические генерируются ffmpeg в тестах)
+pkg/audiopreproc/testdata/*.mp3
+pkg/audiopreproc/testdata/*.m4a
+!pkg/audiopreproc/testdata/.gitkeep
