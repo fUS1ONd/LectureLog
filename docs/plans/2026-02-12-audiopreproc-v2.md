@@ -53,9 +53,17 @@ pkg/audiopreproc/
 ├── ffmpeg.go              # runFFmpeg, CheckFFmpeg, split/concat, getAudioDuration
 ├── silence.go             # detect/remove silence для WAV-чанков
 ├── silence_test.go        # Тесты детекции и вырезания тишины
+├── cmd/audiopreproc/      # CLI: запуск одной командой
+│   └── main.go
 ├── scripts/
 │   └── denoise.py         # Python-скрипт для вызова HF API
 └── testdata/              # Тестовые аудио (в .gitignore)
+```
+
+### CLI запуск
+
+```bash
+go run ./pkg/audiopreproc/cmd/audiopreproc <input> <output>
 ```
 
 ### Зависимости пользователя

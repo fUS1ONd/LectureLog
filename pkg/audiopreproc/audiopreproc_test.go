@@ -34,3 +34,23 @@ func TestProcess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, info.Size(), int64(0))
 }
+
+func TestHasSuccessMarker(t *testing.T) {
+	assert.True(t, hasSuccessMarker("OK\n"))
+	assert.True(t, hasSuccessMarker("Loaded as API: https://example\nOK\n"))
+	assert.True(t, hasSuccessMarker("\n  OK  \n"))
+
+	assert.False(t, hasSuccessMarker("Loaded as API: https://example\n"))
+	assert.False(t, hasSuccessMarker("ERROR\n"))
+}
+
+func TestParseChunkProgressLine(t *testing.T) {
+	cur, total, name, ok := parseChunkProgressLine("[3/12] chunk_002.wav")
+	require.True(t, ok)
+	assert.Equal(t, 3, cur)
+	assert.Equal(t, 12, total)
+	assert.Equal(t, "chunk_002.wav", name)
+
+	_, _, _, ok = parseChunkProgressLine("Loaded as API: https://example")
+	assert.False(t, ok)
+}
