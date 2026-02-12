@@ -17,4 +17,5 @@
 # Тестовые аудиофайлы (синтетические генерируются ffmpeg в тестах)
 pkg/audiopreproc/testdata/*.mp3
 pkg/audiopreproc/testdata/*.m4a
+pkg/audiopreproc/testdata/*.wav
 !pkg/audiopreproc/testdata/.gitkeep

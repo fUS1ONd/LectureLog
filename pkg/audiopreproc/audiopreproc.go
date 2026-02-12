@@ -1,55 +1,98 @@
 package audiopreproc
 
-import "time"
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
 
-// Segment — фрагмент аудио с таймкодами в оригинале и обработанном файле
-type Segment struct {
-	OriginalStart  time.Duration
-	OriginalEnd    time.Duration
-	ProcessedStart time.Duration
-	ProcessedEnd   time.Duration
+// Process — шумоподавление аудиофайла.
+// Входной формат — любой (ffmpeg). Выходной — по расширению output.
+func Process(ctx context.Context, input, output string) error {
+	if err := CheckFFmpeg(ctx); err != nil {
+		return err
+	}
+
+	if _, err := execLookPath("python3"); err != nil {
+		return fmt.Errorf("python3 недоступен: %w", err)
+	}
+
+	if err := checkGradioClient(ctx); err != nil {
+		return err
+	}
+
+	tmpDir, err := os.MkdirTemp("", "audiopreproc-v2-*")
+	if err != nil {
+		return fmt.Errorf("создание временной директории: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	inDir := filepath.Join(tmpDir, "in")
+	outDir := filepath.Join(tmpDir, "out")
+	if err := os.MkdirAll(inDir, 0o755); err != nil {
+		return fmt.Errorf("создание in-директории: %w", err)
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return fmt.Errorf("создание out-директории: %w", err)
+	}
+
+	if err := splitChunks(ctx, input, inDir, 60); err != nil {
+		return err
+	}
+
+	scriptPath, err := denoiseScriptPath()
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.CommandContext(ctx, "python3", scriptPath, inDir, outDir)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("denoise.py: %w: %s", err, stderr.String())
+	}
+
+	if strings.TrimSpace(stdout.String()) != "OK" {
+		return fmt.Errorf("denoise.py вернул неожиданный stdout: %q", stdout.String())
+	}
+
+	if err := concatChunks(ctx, outDir, output); err != nil {
+		return err
+	}
+
+	return nil
 }
 
-// TimeMap — маппинг таймкодов между оригинальным и обработанным аудио
-type TimeMap struct {
-	Segments []Segment
+func denoiseScriptPath() (string, error) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", fmt.Errorf("не удалось определить путь к audiopreproc.go")
+	}
+
+	path := filepath.Join(filepath.Dir(thisFile), "scripts", "denoise.py")
+	if _, err := os.Stat(path); err != nil {
+		return "", fmt.Errorf("скрипт denoise.py не найден: %w", err)
+	}
+
+	return path, nil
 }
 
-// Result — результат обработки аудио
-type Result struct {
-	OutputPath string
-	TimeMap    *TimeMap // nil если вырезание тишины отключено
+func execLookPath(file string) (string, error) {
+	return exec.LookPath(file)
 }
 
-// ToOriginal — конвертирует таймкод из обработанного аудио в оригинальное
-func (tm *TimeMap) ToOriginal(processed time.Duration) time.Duration {
-	for _, seg := range tm.Segments {
-		if processed >= seg.ProcessedStart && processed <= seg.ProcessedEnd {
-			offset := processed - seg.ProcessedStart
-			return seg.OriginalStart + offset
-		}
+func checkGradioClient(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "python3", "-c", "import gradio_client")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("python3 пакет gradio_client недоступен: %w", err)
 	}
-	// За пределами всех сегментов — возвращаем конец последнего
-	if len(tm.Segments) > 0 {
-		last := tm.Segments[len(tm.Segments)-1]
-		return last.OriginalEnd
-	}
-	return 0
-}
-
-// ToProcessed — конвертирует таймкод из оригинального аудио в обработанное
-func (tm *TimeMap) ToProcessed(original time.Duration) time.Duration {
-	for _, seg := range tm.Segments {
-		if original >= seg.OriginalStart && original <= seg.OriginalEnd {
-			offset := original - seg.OriginalStart
-			return seg.ProcessedStart + offset
-		}
-	}
-	// Попали в вырезанный участок — возвращаем конец предыдущего сегмента
-	for i := len(tm.Segments) - 1; i >= 0; i-- {
-		if original > tm.Segments[i].OriginalEnd {
-			return tm.Segments[i].ProcessedEnd
-		}
-	}
-	return 0
+	return nil
 }
