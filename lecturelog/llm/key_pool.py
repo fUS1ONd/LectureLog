@@ -34,9 +34,9 @@ class KeyPool:
     async def acquire(self) -> tuple[Any, int]:
         while True:
             min_wait = float("inf")
-            now = self._time()
 
             async with self._lock:
+                now = self._time()
                 for _ in range(len(self._clients)):
                     idx = self._next_idx
                     self._next_idx = (self._next_idx + 1) % len(self._clients)
@@ -53,12 +53,12 @@ class KeyPool:
 
             await self._sleep(max(0.05, min_wait))
 
-    def mark_rate_limited(self, idx: int) -> None:
+    async def mark_rate_limited(self, idx: int) -> None:
         if idx < 0 or idx >= len(self._clients):
             raise IndexError("Некорректный индекс ключа")
-        self._blocked_until[idx] = self._time() + self._block_seconds
+        async with self._lock:
+            self._blocked_until[idx] = self._time() + self._block_seconds
 
     def alive_count(self) -> int:
         now = self._time()
         return sum(1 for blocked_until in self._blocked_until if blocked_until <= now)
-

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from typing import Any
 
 from lecturelog.llm.key_pool import KeyPool
-
-DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
 
 
 def _is_rate_limit_error(error: Exception) -> bool:
@@ -22,6 +19,7 @@ def _is_overload_error(error: Exception) -> bool:
 async def call_gemini(
     pool: KeyPool,
     prompt: str,
+    model: str = "gemini-2.5-pro",
     images: list[bytes] | None = None,
     retries: int = 5,
 ) -> str:
@@ -43,8 +41,9 @@ async def call_gemini(
             else:
                 contents = prompt
 
-            response = client.models.generate_content(
-                model=DEFAULT_GEMINI_MODEL,
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=model,
                 contents=contents,
             )
             response_text = getattr(response, "text", None)
@@ -54,7 +53,7 @@ async def call_gemini(
         except Exception as error:
             last_error = error
             if _is_rate_limit_error(error):
-                pool.mark_rate_limited(idx)
+                await pool.mark_rate_limited(idx)
                 continue
             if _is_overload_error(error):
                 await asyncio.sleep(10 * attempt)
@@ -62,4 +61,3 @@ async def call_gemini(
             raise
 
     raise RuntimeError(f"Не удалось получить ответ Gemini после {retries} попыток: {last_error}")
-

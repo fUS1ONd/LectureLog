@@ -1,3 +1,7 @@
+import pytest
+
+pytest.importorskip("pydantic_settings")
+
 from lecturelog.config import Settings
 from lecturelog.models import PipelineStage, PipelineStatus, Section
 
@@ -36,4 +40,3 @@ def test_section_model() -> None:
     )
 
     assert section.slide_indices == [1, 2]
-

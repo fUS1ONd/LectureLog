@@ -4,6 +4,7 @@ import re
 
 
 def extract_plain_text(srt: str) -> str:
+    """Извлекает чистый текст из SRT, убирая нумерацию и таймкоды."""
     lines: list[str] = []
     for line in srt.split("\n"):
         line = line.strip()
@@ -18,6 +19,7 @@ def extract_plain_text(srt: str) -> str:
 
 
 def parse_srt_time(time_str: str) -> float:
+    """Переводит таймкод SRT (ЧЧ:ММ:СС,МСС или ММ:СС,МСС) в секунды."""
     time_str = time_str.replace(",", ".")
     parts = time_str.split(":")
     if len(parts) == 3:
@@ -28,10 +30,12 @@ def parse_srt_time(time_str: str) -> float:
 
 
 def format_time(time_str: str) -> str:
+    """Нормализует формат таймкода до ЧЧ:ММ:СС."""
     return time_str.split(",")[0].split(".")[0]
 
 
 def extract_srt_fragment(srt: str, start: str, end: str) -> str:
+    """Вырезает фрагмент SRT по таймкодам."""
     start_sec = parse_srt_time(start.replace(".", ",") if "," not in start else start)
     end_sec = parse_srt_time(end.replace(".", ",") if "," not in end else end)
 
@@ -52,4 +56,3 @@ def extract_srt_fragment(srt: str, start: str, end: str) -> str:
             result.append(block)
 
     return "\n\n".join(result)
-

@@ -2,12 +2,7 @@ from __future__ import annotations
 
 from typing import List
 
-try:
-    from pydantic_settings import BaseSettings, SettingsConfigDict
-except ModuleNotFoundError:  # pragma: no cover
-    from pydantic import BaseModel as BaseSettings
-
-    SettingsConfigDict = dict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
