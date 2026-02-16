@@ -24,3 +24,9 @@ pkg/audiopreproc/testdata/*.wav
 scripts/api_keys.txt
 scripts/.env
 .env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
