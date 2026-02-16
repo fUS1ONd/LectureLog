@@ -18,8 +18,8 @@ def extract_plain_text(srt: str) -> str:
 
 
 def parse_srt_time(time_str: str) -> float:
-    normalized = time_str.replace(",", ".")
-    parts = normalized.split(":")
+    time_str = time_str.replace(",", ".")
+    parts = time_str.split(":")
     if len(parts) == 3:
         return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
     if len(parts) == 2:
@@ -48,8 +48,8 @@ def extract_srt_fragment(srt: str, start: str, end: str) -> str:
 
         block_start = parse_srt_time(time_match.group(1))
         block_end = parse_srt_time(time_match.group(2))
-
         if block_end >= start_sec and block_start <= end_sec:
             result.append(block)
 
     return "\n\n".join(result)
+

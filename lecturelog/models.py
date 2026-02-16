@@ -6,11 +6,11 @@ from pydantic import BaseModel
 
 
 class PipelineStage(StrEnum):
-    TRANSCRIBE = "TRANSCRIBE"
-    SLIDES = "SLIDES"
-    STRUCTURIZE = "STRUCTURIZE"
-    AUDIO_CUT = "AUDIO_CUT"
-    EXPORT = "EXPORT"
+    TRANSCRIBE = "transcribe"
+    SLIDES = "slides"
+    STRUCTURIZE = "structurize"
+    AUDIO_CUT = "audio_cut"
+    EXPORT = "export"
 
 
 class PipelineStatus(BaseModel):
@@ -27,3 +27,4 @@ class Section(BaseModel):
     end: str
     content: str
     slide_indices: list[int]
+

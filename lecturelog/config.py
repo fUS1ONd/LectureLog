@@ -1,43 +1,30 @@
 from __future__ import annotations
 
-import os
-from functools import lru_cache
+from typing import List
 
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
-except Exception:  # pragma: no cover
-    from pydantic import BaseModel
+except ModuleNotFoundError:  # pragma: no cover
+    from pydantic import BaseModel as BaseSettings
 
-    class BaseSettings(BaseModel):  # type: ignore
-        def __init__(self, **data):
-            values = {}
-            for key in self.model_fields:
-                if key in os.environ:
-                    values[key] = os.environ[key]
-            values.update(data)
-            super().__init__(**values)
-
-    SettingsConfigDict = dict  # type: ignore
+    SettingsConfigDict = dict
 
 
 class Settings(BaseSettings):
-    GROQ_API_KEY: str = ""
-    GEMINI_API_KEYS: str = ""
+    GROQ_API_KEY: str
+    GEMINI_API_KEYS: str
     GEMINI_MODEL: str = "gemini-2.5-pro"
-
     UPLOAD_DIR: str = "/tmp/lecturelog"
     MAX_WORKERS: int = 5
-
     TELEGRAM_BOT_TOKEN: str = ""
     API_BASE_URL: str = "http://localhost:8000"
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     @property
-    def gemini_api_keys(self) -> list[str]:
-        return [key.strip() for key in self.GEMINI_API_KEYS.split(",") if key.strip()]
-
-
-@lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    return Settings()
+    def gemini_api_keys(self) -> List[str]:
+        return [item.strip() for item in self.GEMINI_API_KEYS.split(",") if item.strip()]
