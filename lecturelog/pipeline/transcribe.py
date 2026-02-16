@@ -1,25 +1,57 @@
 from __future__ import annotations
 
 import asyncio
-import math
+import inspect
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import httpx
 
-
-def _srt_ts(seconds: float) -> str:
-    ms = int((seconds - int(seconds)) * 1000)
-    total = int(seconds)
-    hh = total // 3600
-    mm = (total % 3600) // 60
-    ss = total % 60
-    return f"{hh:02d}:{mm:02d}:{ss:02d},{ms:03d}"
+GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
 
-async def _run_ffmpeg_segment(audio_path: Path, output_dir: Path):
+def _format_srt_timestamp(seconds: float) -> str:
+    total_ms = max(0, int(round(seconds * 1000)))
+    hours = total_ms // 3_600_000
+    minutes = (total_ms % 3_600_000) // 60_000
+    secs = (total_ms % 60_000) // 1000
+    millis = total_ms % 1000
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def _build_srt_from_words(words: list[dict[str, Any]], words_per_caption: int = 7) -> str:
+    if not words:
+        return ""
+
+    lines: list[str] = []
+    sorted_words = sorted(words, key=lambda item: float(item["start"]))
+    for idx in range(0, len(sorted_words), words_per_caption):
+        group = sorted_words[idx : idx + words_per_caption]
+        if not group:
+            continue
+
+        block_index = idx // words_per_caption + 1
+        start_ts = _format_srt_timestamp(float(group[0]["start"]))
+        end_ts = _format_srt_timestamp(float(group[-1]["end"]))
+        text = " ".join(str(item["word"]).strip() for item in group if str(item["word"]).strip())
+
+        lines.append(str(block_index))
+        lines.append(f"{start_ts} --> {end_ts}")
+        lines.append(text)
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+async def _emit_progress(on_progress: Callable[[int], Any], value: int) -> None:
+    maybe_awaitable = on_progress(value)
+    if inspect.isawaitable(maybe_awaitable):
+        await maybe_awaitable
+
+
+async def _run_ffmpeg_segment(audio_path: Path, output_dir: Path) -> None:
     output_pattern = output_dir / "chunk_%03d.mp3"
-    proc = await asyncio.create_subprocess_exec(
+    process = await asyncio.create_subprocess_exec(
         "ffmpeg",
         "-y",
         "-i",
@@ -36,78 +68,102 @@ async def _run_ffmpeg_segment(audio_path: Path, output_dir: Path):
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg segment failed: {stderr.decode('utf-8', errors='ignore')}")
+    _, stderr = await process.communicate()
+    if process.returncode != 0:
+        raise RuntimeError(f"ffmpeg завершился с ошибкой: {stderr.decode('utf-8', errors='ignore')}")
+
+
+async def _transcribe_chunk(
+    client: httpx.AsyncClient,
+    chunk_path: Path,
+    groq_api_key: str,
+    offset_seconds: float,
+    semaphore: asyncio.Semaphore,
+) -> list[dict[str, Any]]:
+    async with semaphore:
+        headers = {"Authorization": f"Bearer {groq_api_key}"}
+        data = [
+            ("model", "whisper-large-v3"),
+            ("response_format", "verbose_json"),
+            ("timestamp_granularities[]", "word"),
+        ]
+        files = {
+            "file": (
+                chunk_path.name,
+                chunk_path.read_bytes(),
+                "audio/mpeg",
+            )
+        }
+        response = await client.post(
+            GROQ_TRANSCRIBE_URL,
+            headers=headers,
+            data=data,
+            files=files,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        words: list[dict[str, Any]] = payload.get("words") or []
+        result: list[dict[str, Any]] = []
+        for item in words:
+            word = str(item.get("word", "")).strip()
+            start = item.get("start")
+            end = item.get("end")
+            if not word or start is None or end is None:
+                continue
+            result.append(
+                {
+                    "word": word,
+                    "start": float(start) + offset_seconds,
+                    "end": float(end) + offset_seconds,
+                }
+            )
+        return result
 
 
 async def transcribe(
     audio_path: Path,
     output_dir: Path,
     groq_api_key: str,
-    on_progress: Callable[[int, str], None],
+    on_progress: Callable[[int], Any],
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    chunks_dir = output_dir / "chunks"
-    chunks_dir.mkdir(parents=True, exist_ok=True)
+    await _emit_progress(on_progress, 5)
 
-    on_progress(5, "Подготовка аудио")
-    await _run_ffmpeg_segment(audio_path, chunks_dir)
-
-    chunk_paths = sorted(chunks_dir.glob("chunk_*.mp3"))
+    await _run_ffmpeg_segment(audio_path, output_dir)
+    chunk_paths = sorted(output_dir.glob("chunk_*.mp3"))
     if not chunk_paths:
-        fallback = chunks_dir / "chunk_000.mp3"
-        fallback.write_bytes(audio_path.read_bytes())
-        chunk_paths = [fallback]
+        raise RuntimeError("ffmpeg не создал сегменты аудио")
+
+    await _emit_progress(on_progress, 20)
 
     semaphore = asyncio.Semaphore(6)
-
-    async with httpx.AsyncClient(timeout=120) as client:
-        async def transcribe_chunk(chunk_path: Path, chunk_index: int):
-            async with semaphore:
-                files = {"file": (chunk_path.name, chunk_path.read_bytes(), "audio/mpeg")}
-                data = {
-                    "model": "whisper-large-v3",
-                    "response_format": "verbose_json",
-                    "timestamp_granularities[]": "word",
-                }
-                headers = {"Authorization": f"Bearer {groq_api_key}"}
-                resp = await client.post(
-                    "https://api.groq.com/openai/v1/audio/transcriptions",
-                    data=data,
-                    files=files,
-                    headers=headers,
+    words: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        tasks = [
+            asyncio.create_task(
+                _transcribe_chunk(
+                    client=client,
+                    chunk_path=chunk_path,
+                    groq_api_key=groq_api_key,
+                    offset_seconds=index * 1200.0,
+                    semaphore=semaphore,
                 )
-                resp.raise_for_status()
-                payload = resp.json()
-                words = payload.get("words", [])
-                offset = chunk_index * 1200.0
-                normalized: list[tuple[float, float, str]] = []
-                for word in words:
-                    start = float(word.get("start", 0.0)) + offset
-                    end = float(word.get("end", start + 0.2)) + offset
-                    token = str(word.get("word", "")).strip()
-                    if token:
-                        normalized.append((start, end, token))
-                return normalized
+            )
+            for index, chunk_path in enumerate(chunk_paths)
+        ]
 
-        tasks = [transcribe_chunk(path, i) for i, path in enumerate(chunk_paths)]
-        words_per_chunk = await asyncio.gather(*tasks)
+        total = len(tasks)
+        done = 0
+        for task in asyncio.as_completed(tasks):
+            chunk_words = await task
+            words.extend(chunk_words)
+            done += 1
+            await _emit_progress(on_progress, 20 + int((done / total) * 70))
 
-    all_words = [word for chunk_words in words_per_chunk for word in chunk_words]
-    if not all_words:
-        raise RuntimeError("Groq Whisper вернул пустой результат")
-
-    group_size = 7
-    entries: list[str] = []
-    for idx in range(math.ceil(len(all_words) / group_size)):
-        chunk = all_words[idx * group_size : (idx + 1) * group_size]
-        start = _srt_ts(chunk[0][0])
-        end = _srt_ts(chunk[-1][1])
-        text = " ".join(token for _, _, token in chunk)
-        entries.append(f"{idx + 1}\n{start} --> {end}\n{text}\n")
-
+    srt_content = _build_srt_from_words(words)
     srt_path = output_dir / "transcript.srt"
-    srt_path.write_text("\n".join(entries), encoding="utf-8")
-    on_progress(100, "Транскрибация завершена")
+    srt_path.write_text(srt_content, encoding="utf-8")
+
+    await _emit_progress(on_progress, 100)
     return srt_path
+

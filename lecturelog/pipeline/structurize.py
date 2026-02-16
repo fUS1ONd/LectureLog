@@ -1,29 +1,80 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
-import re
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from lecturelog.llm.gemini import call_gemini
 from lecturelog.llm.key_pool import KeyPool
 from lecturelog.models import Section
 from lecturelog.srt import extract_srt_fragment
 
-
-_PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
-
-
-def _read_prompt(name: str) -> str:
-    return (_PROMPTS_DIR / name).read_text(encoding="utf-8")
+PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
 
-def _parse_json_payload(raw: str):
-    text = raw.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
+def _read_prompt(filename: str) -> str:
+    prompt_path = PROMPTS_DIR / filename
+    return prompt_path.read_text(encoding="utf-8")
+
+
+def _parse_json(raw_text: str) -> Any:
+    text = raw_text.strip()
+    if text.startswith("```"):
+        lines = [line for line in text.splitlines() if not line.startswith("```")]
+        text = "\n".join(lines).strip()
     return json.loads(text)
+
+
+async def _emit_progress(on_progress: Callable[[int], Any], value: int) -> None:
+    maybe_awaitable = on_progress(value)
+    if inspect.isawaitable(maybe_awaitable):
+        await maybe_awaitable
+
+
+async def _render_section(
+    section_index: int,
+    section_data: dict[str, Any],
+    srt_content: str,
+    section_prompt_template: str,
+    slide_mapping: dict[int, list[int]],
+    slide_images: list[Path],
+    slide_bytes: list[bytes],
+    pool: KeyPool,
+    model: str,
+) -> tuple[int, Section]:
+    title = str(section_data["title"])
+    start = str(section_data["start"])
+    end = str(section_data["end"])
+
+    fragment = extract_srt_fragment(srt_content, start, end)
+    prompt = section_prompt_template.format(title=title, start=start, end=end)
+    prompt = f"{prompt}\n{fragment}"
+
+    related_slide_indices = slide_mapping.get(section_index, [])
+    related_images = [
+        slide_bytes[slide_idx - 1]
+        for slide_idx in related_slide_indices
+        if 1 <= slide_idx <= len(slide_images)
+    ]
+
+    content = await call_gemini(
+        pool=pool,
+        prompt=prompt,
+        model=model,
+        images=related_images if related_images else None,
+    )
+    return (
+        section_index,
+        Section(
+            title=title,
+            start=start,
+            end=end,
+            content=content.strip(),
+            slide_indices=related_slide_indices,
+        ),
+    )
 
 
 async def structurize(
@@ -32,71 +83,70 @@ async def structurize(
     output_dir: Path,
     pool: KeyPool,
     model: str,
-    on_progress: Callable[[int, str], None],
+    on_progress: Callable[[int], Any],
 ) -> list[Section]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    pool.model = model
-
     srt_content = srt_path.read_text(encoding="utf-8")
+    await _emit_progress(on_progress, 5)
 
-    on_progress(5, "Определение структуры лекции")
-    split_prompt = _read_prompt("split_v1.md") + "\n" + srt_content
-    split_raw = await call_gemini(pool, split_prompt)
-    split_sections = _parse_json_payload(split_raw)
+    split_prompt = f"{_read_prompt('split_v1.md')}\n{srt_content}"
+    split_raw = await call_gemini(pool=pool, prompt=split_prompt, model=model)
+    sections_data = _parse_json(split_raw)
+    if not isinstance(sections_data, list):
+        raise ValueError("Ответ split-этапа должен быть JSON-массивом")
 
-    sections: list[Section] = [
-        Section(
-            title=item["title"],
-            start=item["start"],
-            end=item["end"],
-            content="",
-            slide_indices=[],
-        )
-        for item in split_sections
-    ]
+    await _emit_progress(on_progress, 35)
 
+    slide_mapping: dict[int, list[int]] = {}
+    slide_bytes = [path.read_bytes() for path in slide_images]
     if slide_images:
-        on_progress(25, "Привязка слайдов к разделам")
         slide_prompt = _read_prompt("slide_match_v1.md")
-        payload = json.dumps(
-            [{"title": s.title, "start": s.start, "end": s.end} for s in sections],
-            ensure_ascii=False,
-            indent=2,
+        slide_prompt = f"{slide_prompt}\n\nРазделы лекции:\n{json.dumps(sections_data, ensure_ascii=False)}"
+        mapping_raw = await call_gemini(
+            pool=pool,
+            prompt=slide_prompt,
+            model=model,
+            images=slide_bytes,
         )
-        images = [img.read_bytes() for img in slide_images]
-        slide_raw = await call_gemini(pool, f"{slide_prompt}\n\nРазделы:\n{payload}", images=images)
-        mapping = _parse_json_payload(slide_raw)
-        for idx, section in enumerate(sections):
-            values = mapping.get(str(idx), [])
-            if isinstance(values, list):
-                section.slide_indices = [int(v) for v in values if isinstance(v, (int, float, str))]
+        parsed_mapping = _parse_json(mapping_raw)
+        if not isinstance(parsed_mapping, dict):
+            raise ValueError("Ответ slide_match-этапа должен быть JSON-объектом")
+        for key, value in parsed_mapping.items():
+            if not isinstance(value, list):
+                continue
+            slide_mapping[int(key)] = [int(item) for item in value]
+
+    await _emit_progress(on_progress, 55)
 
     section_prompt_template = _read_prompt("section_v1.md")
-
-    async def process_one(idx: int, section: Section):
-        fragment = extract_srt_fragment(srt_content, section.start, section.end)
-        prompt = (
-            section_prompt_template.format(title=section.title, start=section.start, end=section.end)
-            + "\n"
-            + fragment
+    tasks = [
+        asyncio.create_task(
+            _render_section(
+                section_index=index,
+                section_data=section,
+                srt_content=srt_content,
+                section_prompt_template=section_prompt_template,
+                slide_mapping=slide_mapping,
+                slide_images=slide_images,
+                slide_bytes=slide_bytes,
+                pool=pool,
+                model=model,
+            )
         )
+        for index, section in enumerate(sections_data)
+    ]
 
-        images: list[bytes] = []
-        for slide_idx in section.slide_indices:
-            position = slide_idx - 1
-            if 0 <= position < len(slide_images):
-                images.append(slide_images[position].read_bytes())
+    rendered_sections: list[tuple[int, Section]] = []
+    total = len(tasks)
+    done = 0
+    for task in asyncio.as_completed(tasks):
+        rendered_sections.append(await task)
+        done += 1
+        await _emit_progress(on_progress, 55 + int((done / max(total, 1)) * 45))
 
-        section.content = await call_gemini(pool, prompt, images=images or None)
-        pct = min(95, 35 + int((idx + 1) / max(1, len(sections)) * 60))
-        on_progress(pct, f"Сформирован раздел {idx + 1}/{len(sections)}")
+    rendered_sections.sort(key=lambda item: item[0])
+    result = [section for _, section in rendered_sections]
 
-    await asyncio.gather(*[process_one(i, section) for i, section in enumerate(sections)])
+    await _emit_progress(on_progress, 100)
+    return result
 
-    output_path = output_dir / "sections.json"
-    output_path.write_text(
-        json.dumps([section.model_dump() for section in sections], ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    on_progress(100, "Структурирование завершено")
-    return sections

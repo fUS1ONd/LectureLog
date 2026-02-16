@@ -1,62 +1,59 @@
 import asyncio
 from pathlib import Path
 
-from lecturelog.pipeline import slides
+import lecturelog.pipeline.slides as slides_module
+from lecturelog.pipeline.slides import convert_slides
 
 
-class _ProgressSpy:
-    def __init__(self):
-        self.calls = []
+def test_convert_slides_pdf_calls_pdf_converter(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "deck.pdf"
+    source.write_bytes(b"pdf")
+    output_dir = tmp_path / "out"
 
-    def __call__(self, pct: int, message: str):
-        self.calls.append((pct, message))
+    expected = [output_dir / "slide-01.png", output_dir / "slide-02.png"]
 
-
-def test_convert_slides_pdf_uses_pdf_renderer(tmp_path, monkeypatch):
-    pdf_path = tmp_path / "slides.pdf"
-    pdf_path.write_bytes(b"%PDF-1.4")
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-
-    expected = [out_dir / "slide-01.png", out_dir / "slide-02.png"]
-
-    async def fake_render(path: Path, output_dir: Path):
-        assert path == pdf_path
-        assert output_dir == out_dir
+    async def fake_convert_pdf(path: Path, out_dir: Path) -> list[Path]:
+        assert path == source
+        assert out_dir == output_dir
         return expected
 
-    monkeypatch.setattr(slides, "_render_pdf_to_png", fake_render)
+    monkeypatch.setattr(slides_module, "_convert_pdf_to_png", fake_convert_pdf)
 
-    progress = _ProgressSpy()
-    result = asyncio.run(slides.convert_slides(pdf_path, out_dir, progress))
+    result = asyncio.run(convert_slides(source, output_dir, on_progress=lambda _: None))
 
     assert result == expected
-    assert progress.calls
 
 
-def test_convert_slides_pptx_converts_then_renders(tmp_path, monkeypatch):
-    pptx_path = tmp_path / "slides.pptx"
-    pptx_path.write_bytes(b"pptx")
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-    tmp_pdf = tmp_path / "converted.pdf"
-    expected = [out_dir / "slide-01.png"]
+def test_convert_slides_pptx_calls_pptx_converter(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "deck.pptx"
+    source.write_bytes(b"pptx")
+    output_dir = tmp_path / "out"
 
-    async def fake_convert(path: Path, work_dir: Path):
-        assert path == pptx_path
-        assert work_dir == out_dir
-        return tmp_pdf
+    expected = [output_dir / "slide-01.png"]
 
-    async def fake_render(path: Path, output_dir: Path):
-        assert path == tmp_pdf
-        assert output_dir == out_dir
+    async def fake_convert_pptx(path: Path, out_dir: Path) -> list[Path]:
+        assert path == source
+        assert out_dir == output_dir
         return expected
 
-    monkeypatch.setattr(slides, "_convert_pptx_to_pdf", fake_convert)
-    monkeypatch.setattr(slides, "_render_pdf_to_png", fake_render)
+    monkeypatch.setattr(slides_module, "_convert_pptx_to_png", fake_convert_pptx)
 
-    progress = _ProgressSpy()
-    result = asyncio.run(slides.convert_slides(pptx_path, out_dir, progress))
+    result = asyncio.run(convert_slides(source, output_dir, on_progress=lambda _: None))
 
     assert result == expected
-    assert progress.calls
+
+
+def test_convert_slides_unsupported_extension_raises(tmp_path) -> None:
+    source = tmp_path / "deck.txt"
+    source.write_text("x", encoding="utf-8")
+
+    async def scenario() -> None:
+        await convert_slides(source, tmp_path / "out", on_progress=lambda _: None)
+
+    try:
+        asyncio.run(scenario())
+    except ValueError as error:
+        assert "Неподдерживаемый формат" in str(error)
+    else:
+        raise AssertionError("Ожидался ValueError для неподдерживаемого формата")
+

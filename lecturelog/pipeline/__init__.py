@@ -1,1 +1,2 @@
-__all__: list[str] = []
+"""Этапы обработки LectureLog pipeline."""
+
