@@ -24,17 +24,24 @@ def _build_pool(settings: Settings) -> KeyPool:
     return KeyPool(clients=clients, rpm_per_key=12, model=settings.GEMINI_MODEL)
 
 
+def _build_task_manager(settings: Settings) -> TaskManager:
+    pool = _build_pool(settings)
+    runner = PipelineRunner(config=settings, pool=pool)
+    return TaskManager(settings=settings, runner=runner)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or get_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        pool = _build_pool(cfg)
-        runner = PipelineRunner(config=cfg, pool=pool)
-        app.state.task_manager = TaskManager(settings=cfg, runner=runner)
+        # Защита для окружений, где lifespan может быть отключён в тестах.
+        if getattr(app.state, "task_manager", None) is None:
+            app.state.task_manager = _build_task_manager(cfg)
         yield
 
     app = FastAPI(lifespan=lifespan)
+    app.state.task_manager = _build_task_manager(cfg)
     app.include_router(router)
     return app
 
