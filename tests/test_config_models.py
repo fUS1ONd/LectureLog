@@ -13,7 +13,7 @@ def test_settings_defaults_and_parsing() -> None:
     )
 
     assert settings.GEMINI_MODEL == "gemini-2.5-pro"
-    assert settings.UPLOAD_DIR == "/tmp/lecturelog"
+    assert settings.UPLOAD_DIR == "/app/data"
     assert settings.MAX_WORKERS == 5
     assert settings.API_BASE_URL == "http://localhost:8000"
     assert settings.gemini_api_keys == ["k1", "k2", "k3"]

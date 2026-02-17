@@ -45,7 +45,7 @@ class PipelineRunner:
 
         self._set_status(task_id, stage=PipelineStage.TRANSCRIBE, progress_pct=0, error=None)
 
-        def transcribe_progress(pct: int, _: str):
+        def transcribe_progress(pct: int):
             self._set_status(task_id, stage=PipelineStage.TRANSCRIBE, progress_pct=min(20, pct // 5))
 
         try:
@@ -60,7 +60,7 @@ class PipelineRunner:
             if slides_path is not None:
                 self._set_status(task_id, stage=PipelineStage.SLIDES, progress_pct=25)
 
-                def slides_progress(pct: int, _: str):
+                def slides_progress(pct: int):
                     self._set_status(task_id, stage=PipelineStage.SLIDES, progress_pct=20 + pct // 5)
 
                 slide_images = await convert_slides(
@@ -71,7 +71,7 @@ class PipelineRunner:
 
             self._set_status(task_id, stage=PipelineStage.STRUCTURIZE, progress_pct=45)
 
-            def structurize_progress(pct: int, _: str):
+            def structurize_progress(pct: int):
                 self._set_status(task_id, stage=PipelineStage.STRUCTURIZE, progress_pct=45 + pct // 3)
 
             sections = await structurize(

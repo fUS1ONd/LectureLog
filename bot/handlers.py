@@ -22,11 +22,11 @@ class ProcessStates(StatesGroup):
 
 def _status_text(stage: str | None, progress: int) -> str:
     mapping = {
-        "TRANSCRIBE": "Транскрибация",
-        "SLIDES": "Обработка слайдов",
-        "STRUCTURIZE": "Структурирование",
-        "AUDIO_CUT": "Нарезка аудио",
-        "EXPORT": "Сборка результата",
+        "transcribe": "Транскрибация",
+        "slides": "Обработка слайдов",
+        "structurize": "Структурирование",
+        "audio_cut": "Нарезка аудио",
+        "export": "Сборка результата",
     }
     stage_name = mapping.get(stage or "", stage or "Ожидание")
     return f"⏳ {stage_name}... {progress}%"

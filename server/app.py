@@ -21,7 +21,7 @@ def _build_pool(settings: Settings) -> KeyPool:
         except Exception:
             clients = []
 
-    return KeyPool(clients=clients, rpm_per_key=12, model=settings.GEMINI_MODEL)
+    return KeyPool(clients=clients, rpm_per_key=12)
 
 
 def _build_task_manager(settings: Settings) -> TaskManager:
@@ -46,4 +46,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-app = create_app()
+# Ленивая инициализация: uvicorn вызовет create_app() через "server.app:create_app"
+# Для прямого запуска модуля:
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(create_app(), host="0.0.0.0", port=8000)
