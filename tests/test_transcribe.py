@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from lecturelog.pipeline.transcribe import _build_srt_from_words
 
 
@@ -23,4 +25,31 @@ def test_build_srt_from_words_groups_by_seven() -> None:
 
 def test_build_srt_from_words_returns_empty_for_no_words() -> None:
     assert _build_srt_from_words([]) == ""
+
+
+@pytest.mark.anyio
+async def test_groq_key_pool_round_robin():
+    from lecturelog.pipeline.transcribe import GroqKeyPool
+    pool = GroqKeyPool(["key1", "key2"])
+    k1 = await pool.acquire()
+    k2 = await pool.acquire()
+    k3 = await pool.acquire()
+    assert k1 == "key1"
+    assert k2 == "key2"
+    assert k3 == "key1"
+
+
+@pytest.mark.anyio
+async def test_groq_key_pool_skip_blocked():
+    from lecturelog.pipeline.transcribe import GroqKeyPool
+    pool = GroqKeyPool(["key1", "key2"])
+    pool.mark_rate_limited(0)
+    k = await pool.acquire()
+    assert k == "key2"
+
+
+def test_groq_key_pool_empty_raises():
+    from lecturelog.pipeline.transcribe import GroqKeyPool
+    with pytest.raises(ValueError):
+        GroqKeyPool([])
 

@@ -20,5 +20,8 @@ dependencies = [
     "aiogram>=3.0",
 ]
 
+[tool.setuptools.packages.find]
+include = ["lecturelog*", "server*", "bot*", "cli*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests", "scripts/tests"]
