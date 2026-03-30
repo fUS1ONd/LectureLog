@@ -7,15 +7,18 @@ from lecturelog.models import PipelineStage, PipelineStatus, Section
 
 
 def test_settings_defaults_and_parsing() -> None:
+    # Передаём все обязательные поля явно, чтобы не зависеть от .env
     settings = Settings(
-        GROQ_API_KEY="groq-key",
+        GROQ_API_KEYS="groq-key1,groq-key2",
         GEMINI_API_KEYS="k1, k2 ,k3",
+        UPLOAD_DIR="/app/data",
     )
 
     assert settings.GEMINI_MODEL == "gemini-2.5-pro"
     assert settings.UPLOAD_DIR == "/app/data"
     assert settings.MAX_WORKERS == 5
     assert settings.API_BASE_URL == "http://localhost:8000"
+    assert settings.groq_api_keys == ["groq-key1", "groq-key2"]
     assert settings.gemini_api_keys == ["k1", "k2", "k3"]
 
 

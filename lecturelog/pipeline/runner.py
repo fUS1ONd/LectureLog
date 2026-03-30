@@ -52,7 +52,7 @@ class PipelineRunner:
             srt_path = await transcribe(
                 audio_path=audio_path,
                 output_dir=task_dir / "transcribe",
-                groq_api_key=self.config.GROQ_API_KEY,
+                groq_api_keys=self.config.groq_api_keys,
                 on_progress=transcribe_progress,
             )
 

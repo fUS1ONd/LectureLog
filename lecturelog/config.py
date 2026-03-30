@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    GROQ_API_KEY: str
+    GROQ_API_KEYS: str  # один ключ или несколько через запятую
     GEMINI_API_KEYS: str
     GEMINI_MODEL: str = "gemini-2.5-pro"
     UPLOAD_DIR: str = "/app/data"
@@ -20,6 +20,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def groq_api_keys(self) -> List[str]:
+        return [k.strip() for k in self.GROQ_API_KEYS.split(",") if k.strip()]
 
     @property
     def gemini_api_keys(self) -> List[str]:
