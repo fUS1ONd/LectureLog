@@ -72,7 +72,7 @@ def test_call_gemini_retries_after_429_and_succeeds(monkeypatch) -> None:
         result = await call_gemini(
             pool=pool,
             prompt="prompt",
-            model="custom-model",
+            models=["custom-model"],
             retries=2,
         )
         assert result == "ok"
@@ -80,3 +80,37 @@ def test_call_gemini_retries_after_429_and_succeeds(monkeypatch) -> None:
         return result
 
     assert asyncio.run(scenario()) == "ok"
+
+
+import pytest
+
+
+@pytest.mark.anyio
+async def test_call_gemini_falls_back_to_next_model_on_429():
+    """При 429 пробует следующую модель на том же ключе."""
+    from unittest.mock import MagicMock
+    from lecturelog.llm.gemini import call_gemini
+    from lecturelog.llm.key_pool import KeyPool
+
+    call_count = {"models": []}
+
+    def fake_generate(model, contents):
+        call_count["models"].append(model)
+        if model == "gemini-3-flash-preview":
+            raise Exception("429 RESOURCE_EXHAUSTED quota")
+        result = MagicMock()
+        result.text = "конспект"
+        return result
+
+    client = MagicMock()
+    client.models.generate_content.side_effect = fake_generate
+    pool = KeyPool(clients=[client], rpm_per_key=1000)
+
+    result = await call_gemini(
+        pool=pool,
+        prompt="тест",
+        models=["gemini-3-flash-preview", "gemini-2.5-flash"],
+    )
+
+    assert result == "конспект"
+    assert call_count["models"] == ["gemini-3-flash-preview", "gemini-2.5-flash"]
