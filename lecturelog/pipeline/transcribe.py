@@ -84,6 +84,10 @@ async def _emit_progress(on_progress: Callable[[int], Any], value: int) -> None:
         await maybe_awaitable
 
 
+def _retry_delay(attempt: int) -> int:
+    return 2 ** attempt * 5
+
+
 async def _run_ffmpeg_segment(audio_path: Path, output_dir: Path) -> None:
     output_pattern = output_dir / "chunk_%03d.mp3"
     process = await asyncio.create_subprocess_exec(
@@ -143,13 +147,17 @@ async def _transcribe_chunk(
                 break
             except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as exc:
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt * 5)
+                    await asyncio.sleep(_retry_delay(attempt))
                     continue
                 raise
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code in (429, 503) and attempt < max_retries - 1:
                     # Groq rate-limit — блокируем использованный ключ, пул выберет другой
                     pool.mark_rate_limited(pool.key_index(api_key))
+                    continue
+                if exc.response.status_code == 524 and attempt < max_retries - 1:
+                    # Таймаут на стороне апстрима: ждём и повторяем тот же чанк.
+                    await asyncio.sleep(_retry_delay(attempt))
                     continue
                 raise
         else:
@@ -220,4 +228,3 @@ async def transcribe(
 
     await _emit_progress(on_progress, 100)
     return srt_path
-

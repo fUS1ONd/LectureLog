@@ -1,8 +1,11 @@
 import asyncio
+from pathlib import Path
 
+import httpx
 import pytest
 
-from lecturelog.pipeline.transcribe import _build_srt_from_words
+import lecturelog.pipeline.transcribe as transcribe_module
+from lecturelog.pipeline.transcribe import _build_srt_from_words, _transcribe_chunk
 
 
 def test_build_srt_from_words_groups_by_seven() -> None:
@@ -53,3 +56,59 @@ def test_groq_key_pool_empty_raises():
     with pytest.raises(ValueError):
         GroqKeyPool([])
 
+
+@pytest.mark.anyio
+async def test_transcribe_chunk_retries_on_524(tmp_path, monkeypatch):
+    from lecturelog.pipeline.transcribe import GROQ_TRANSCRIBE_URL, GroqKeyPool
+
+    chunk_path = tmp_path / "chunk_000.mp3"
+    chunk_path.write_bytes(b"chunk")
+
+    request = httpx.Request("POST", GROQ_TRANSCRIBE_URL)
+    responses = [
+        httpx.Response(524, request=request),
+        httpx.Response(
+            200,
+            request=request,
+            json={
+                "words": [
+                    {"word": "привет", "start": 0.1, "end": 0.4},
+                    {"word": "мир", "start": 0.5, "end": 0.7},
+                ]
+            },
+        ),
+    ]
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def post(self, url: str, headers=None, files=None):
+            self.calls += 1
+            return responses[self.calls - 1]
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr(transcribe_module.asyncio, "sleep", fake_sleep)
+
+    pool = GroqKeyPool(["key1"])
+    client = FakeClient()
+
+    words = await _transcribe_chunk(
+        client=client,
+        chunk_path=chunk_path,
+        pool=pool,
+        offset_seconds=1200.0,
+        semaphore=asyncio.Semaphore(1),
+        max_retries=3,
+    )
+
+    assert client.calls == 2
+    assert sleep_calls == [5]
+    assert words == [
+        {"word": "привет", "start": 1200.1, "end": 1200.4},
+        {"word": "мир", "start": 1200.5, "end": 1200.7},
+    ]
