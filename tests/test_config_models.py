@@ -14,7 +14,8 @@ def test_settings_defaults_and_parsing() -> None:
         UPLOAD_DIR="/app/data",
     )
 
-    assert settings.GEMINI_MODEL == "gemini-2.5-pro"
+    assert settings.GEMINI_MODELS == "gemini-3-flash-preview,gemini-2.5-flash,gemini-2.5-flash-lite"
+    assert settings.gemini_models == ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
     assert settings.UPLOAD_DIR == "/app/data"
     assert settings.MAX_WORKERS == 5
     assert settings.API_BASE_URL == "http://localhost:8000"
