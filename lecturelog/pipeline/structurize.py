@@ -42,7 +42,7 @@ async def _render_section(
     slide_images: list[Path],
     slide_bytes: list[bytes],
     pool: KeyPool,
-    model: str,
+    models: list[str],
 ) -> tuple[int, Section]:
     title = str(section_data["title"])
     start = str(section_data["start"])
@@ -62,7 +62,7 @@ async def _render_section(
     content = await call_gemini(
         pool=pool,
         prompt=prompt,
-        model=model,
+        models=models,
         images=related_images if related_images else None,
     )
     return (
@@ -82,7 +82,7 @@ async def structurize(
     slide_images: list[Path],
     output_dir: Path,
     pool: KeyPool,
-    model: str,
+    models: list[str],
     on_progress: Callable[[int], Any],
 ) -> list[Section]:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -90,7 +90,7 @@ async def structurize(
     await _emit_progress(on_progress, 5)
 
     split_prompt = f"{_read_prompt('split_v1.md')}\n{srt_content}"
-    split_raw = await call_gemini(pool=pool, prompt=split_prompt, model=model)
+    split_raw = await call_gemini(pool=pool, prompt=split_prompt, models=models)
     sections_data = _parse_json(split_raw)
     if not isinstance(sections_data, list):
         raise ValueError("Ответ split-этапа должен быть JSON-массивом")
@@ -105,7 +105,7 @@ async def structurize(
         mapping_raw = await call_gemini(
             pool=pool,
             prompt=slide_prompt,
-            model=model,
+            models=models,
             images=slide_bytes,
         )
         parsed_mapping = _parse_json(mapping_raw)
@@ -130,7 +130,7 @@ async def structurize(
                 slide_images=slide_images,
                 slide_bytes=slide_bytes,
                 pool=pool,
-                model=model,
+                models=models,
             )
         )
         for index, section in enumerate(sections_data)

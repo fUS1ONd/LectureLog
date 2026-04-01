@@ -79,7 +79,7 @@ class PipelineRunner:
                 slide_images=slide_images,
                 output_dir=task_dir / "structurize",
                 pool=self.pool,
-                model=self.config.GEMINI_MODEL,
+                models=self.config.gemini_models,
                 on_progress=structurize_progress,
             )
 
