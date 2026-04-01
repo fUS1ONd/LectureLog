@@ -43,3 +43,22 @@ def test_section_model() -> None:
     )
 
     assert section.slide_indices == [1, 2]
+
+
+def test_gemini_models_parsed_from_env(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEYS", "gsk_test")
+    monkeypatch.setenv("GEMINI_API_KEYS", "key1")
+    monkeypatch.setenv("GEMINI_MODELS", "gemini-3-flash-preview,gemini-2.5-flash,gemini-2.5-flash-lite")
+    monkeypatch.setenv("UPLOAD_DIR", "/tmp/test")
+    from lecturelog.config import Settings
+    s = Settings()
+    assert s.gemini_models == ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+
+def test_gemini_models_default(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEYS", "gsk_test")
+    monkeypatch.setenv("GEMINI_API_KEYS", "key1")
+    monkeypatch.setenv("UPLOAD_DIR", "/tmp/test")
+    monkeypatch.delenv("GEMINI_MODELS", raising=False)
+    from lecturelog.config import Settings
+    s = Settings()
+    assert s.gemini_models == ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
