@@ -69,8 +69,8 @@ async def call_gemini(
                     break
                 raise
         if overloaded:
-            # При перегрузке ждём перед следующей попыткой
-            await asyncio.sleep(10 * attempt)
+            # При перегрузке ждём 2 минуты перед следующей попыткой
+            await asyncio.sleep(120)
             continue
         # Все модели на этом ключе исчерпали квоту — блокируем ключ
         await pool.mark_rate_limited(idx)

@@ -43,6 +43,7 @@ async def _render_section(
     slide_bytes: list[bytes],
     pool: KeyPool,
     models: list[str],
+    semaphore: asyncio.Semaphore,
 ) -> tuple[int, Section]:
     title = str(section_data["title"])
     start = str(section_data["start"])
@@ -59,12 +60,14 @@ async def _render_section(
         if 1 <= slide_idx <= len(slide_images)
     ]
 
-    content = await call_gemini(
-        pool=pool,
-        prompt=prompt,
-        models=models,
-        images=related_images if related_images else None,
-    )
+    # Семафор ограничивает параллельность запросов к Gemini
+    async with semaphore:
+        content = await call_gemini(
+            pool=pool,
+            prompt=prompt,
+            models=models,
+            images=related_images if related_images else None,
+        )
     return (
         section_index,
         Section(
@@ -119,6 +122,8 @@ async def structurize(
     await _emit_progress(on_progress, 55)
 
     section_prompt_template = _read_prompt("section_v1.md")
+    # Не более 3 одновременных запросов к Gemini во избежание 503
+    semaphore = asyncio.Semaphore(3)
     tasks = [
         asyncio.create_task(
             _render_section(
@@ -131,6 +136,7 @@ async def structurize(
                 slide_bytes=slide_bytes,
                 pool=pool,
                 models=models,
+                semaphore=semaphore,
             )
         )
         for index, section in enumerate(sections_data)
