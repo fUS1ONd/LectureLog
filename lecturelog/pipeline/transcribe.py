@@ -145,7 +145,7 @@ async def _transcribe_chunk(
                 # Парсим ответ сразу после успешного запроса — response гарантированно определён
                 payload = response.json()
                 break
-            except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError) as exc:
+            except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.ConnectError, httpx.ReadError) as exc:
                 if attempt < max_retries - 1:
                     await asyncio.sleep(_retry_delay(attempt))
                     continue
