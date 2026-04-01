@@ -1,4 +1,7 @@
 import asyncio
+from unittest.mock import MagicMock
+
+import pytest
 
 import lecturelog.llm.gemini as gemini_module
 from lecturelog.llm.gemini import call_gemini
@@ -82,16 +85,9 @@ def test_call_gemini_retries_after_429_and_succeeds(monkeypatch) -> None:
     assert asyncio.run(scenario()) == "ok"
 
 
-import pytest
-
-
 @pytest.mark.anyio
 async def test_call_gemini_falls_back_to_next_model_on_429():
     """При 429 пробует следующую модель на том же ключе."""
-    from unittest.mock import MagicMock
-    from lecturelog.llm.gemini import call_gemini
-    from lecturelog.llm.key_pool import KeyPool
-
     call_count = {"models": []}
 
     def fake_generate(model, contents):

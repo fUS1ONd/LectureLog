@@ -32,6 +32,7 @@ async def call_gemini(
 
     for attempt in range(1, retries + 1):
         client, idx = await pool.acquire()
+        overloaded = False
         # Перебираем модели по порядку на одном ключе
         for model in model_list:
             try:
@@ -60,13 +61,18 @@ async def call_gemini(
             except Exception as error:
                 last_error = error
                 if _is_rate_limit_error(error):
-                    # Квота этой модели исчерпана — пробуем следующую
+                    # Квота этой модели исчерпана — пробуем следующую модель
                     continue
                 if _is_overload_error(error):
-                    await asyncio.sleep(10 * attempt)
-                    continue
+                    # Сервер перегружен целиком — не пробуем другие модели
+                    overloaded = True
+                    break
                 raise
-        # Все модели на этом ключе исчерпаны — блокируем ключ
+        if overloaded:
+            # При перегрузке ждём перед следующей попыткой
+            await asyncio.sleep(10 * attempt)
+            continue
+        # Все модели на этом ключе исчерпали квоту — блокируем ключ
         await pool.mark_rate_limited(idx)
 
     raise RuntimeError(f"Не удалось получить ответ Gemini после {retries} попыток: {last_error}")
