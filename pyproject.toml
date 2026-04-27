@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lecturelog"
+version = "0.1.0"
+description = "LectureLog MVP pipeline service"
+requires-python = ">=3.12"
+dependencies = [
+    "google-genai",
+    "httpx",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+    "pymupdf",
+    "Pillow",
+    "pydantic>=2.0",
+    "pydantic-settings",
+    "aiogram>=3.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["lecturelog*", "server*", "bot*", "cli*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "scripts/tests"]

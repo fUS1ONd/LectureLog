@@ -1,0 +1,2 @@
+"""Этапы обработки LectureLog pipeline."""
+
