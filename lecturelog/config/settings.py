@@ -21,29 +21,30 @@ class GroqConfig(BaseSettings):
         return _split_csv(self.api_keys_raw)
 
 
-class GeminiConfig(BaseSettings):
+class LlmConfig(BaseSettings):
+    # Транспорт LLM переведён на OpenRouter (BYOK): один ключ и base_url
+    # вместо пула ключей Gemini. Модели указываются с префиксом провайдера
+    # (например, "google/gemini-3.5-flash").
     model_config = _BASE
-    api_keys_raw: str = Field(alias="GEMINI_API_KEYS")
+    openrouter_key: str = Field(alias="OPENROUTER_API_KEY")
+    base_url: str = Field("https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL")
+
     models_split: str = Field(
-        "gemini-3.5-flash,gemini-3-flash-preview", alias="GEMINI_MODELS_SPLIT"
+        "google/gemini-3.5-flash,google/gemini-3-flash-preview", alias="LLM_MODELS_SPLIT"
     )
     models_subsplit: str = Field(
-        "gemini-3.5-flash,gemini-3-flash-preview", alias="GEMINI_MODELS_SUBSPLIT"
+        "google/gemini-3.5-flash,google/gemini-3-flash-preview", alias="LLM_MODELS_SUBSPLIT"
     )
     models_render: str = Field(
-        "gemini-3.1-flash-lite,gemini-3.5-flash,gemini-3-flash-preview",
-        alias="GEMINI_MODELS_RENDER",
+        "google/gemini-3.1-flash-lite,google/gemini-3.5-flash,google/gemini-3-flash-preview",
+        alias="LLM_MODELS_RENDER",
     )
-    models_video_slides: str = Field(
-        "gemini-3-flash-preview,gemini-3.5-flash", alias="GEMINI_MODELS_VIDEO_SLIDES"
-    )
-    concurrency_subsplit: int = Field(2, alias="GEMINI_CONCURRENCY_SUBSPLIT")
-    concurrency_render: int = Field(5, alias="GEMINI_CONCURRENCY_RENDER")
-    concurrency_video: int = Field(5, alias="GEMINI_CONCURRENCY_VIDEO")
-
-    @property
-    def keys(self) -> list[str]:
-        return _split_csv(self.api_keys_raw)
+    concurrency_subsplit: int = Field(2, alias="LLM_CONCURRENCY_SUBSPLIT")
+    concurrency_render: int = Field(5, alias="LLM_CONCURRENCY_RENDER")
+    # reasoning effort по стадиям (дизайн: подобрать; старт — консервативно)
+    effort_split: str = Field("low", alias="LLM_EFFORT_SPLIT")
+    effort_subsplit: str = Field("low", alias="LLM_EFFORT_SUBSPLIT")
+    effort_render: str = Field("low", alias="LLM_EFFORT_RENDER")
 
     @property
     def split_models(self) -> list[str]:
@@ -56,10 +57,6 @@ class GeminiConfig(BaseSettings):
     @property
     def render_models(self) -> list[str]:
         return _split_csv(self.models_render)
-
-    @property
-    def video_slides_models(self) -> list[str]:
-        return _split_csv(self.models_video_slides)
 
 
 class DatabaseConfig(BaseSettings):
@@ -101,7 +98,7 @@ class AppConfig(BaseSettings):
     def model_post_init(self, __context: object) -> None:
         # Форсируем создание под-конфигов сразу, чтобы required-поля
         # (GROQ_API_KEYS и т.д.) валидировались в момент построения AppConfig.
-        _ = (self.groq, self.gemini, self.database, self.s3, self.worker, self.webhook)
+        _ = (self.groq, self.llm, self.database, self.s3, self.worker, self.webhook)
 
     @computed_field  # type: ignore[prop-decorator]
     @cached_property
@@ -110,8 +107,8 @@ class AppConfig(BaseSettings):
 
     @computed_field  # type: ignore[prop-decorator]
     @cached_property
-    def gemini(self) -> GeminiConfig:
-        return GeminiConfig()
+    def llm(self) -> LlmConfig:
+        return LlmConfig()
 
     @computed_field  # type: ignore[prop-decorator]
     @cached_property
