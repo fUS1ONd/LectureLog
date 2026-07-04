@@ -15,6 +15,7 @@ dependencies = [
     "httpx>=0.27",
     "groq>=0.13",
     "google-genai>=0.3",
+    "openai>=1.55",
     "pymupdf>=1.24",
     "yt-dlp>=2024.12",
     "aioboto3>=13",
