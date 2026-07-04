@@ -8,7 +8,6 @@ from lecturelog.domain.enums import PipelineStage, TaskStatus
 from lecturelog.domain.media_source import VideoFileSource, VideoUrlSource
 from lecturelog.domain.models import Section, Task, Topic
 from lecturelog.domain.ports import ExportResult
-from lecturelog.infrastructure.slides.video_provider import VideoSlideProvider
 
 
 class InMemoryRepo:
@@ -183,55 +182,3 @@ async def test_video_stages_include_ingest_and_extract(tmp_path):
     progress = [p for _, p in repo.stages]
     assert progress == sorted(progress)
     assert progress[-1] == 100
-
-
-class _FakeVideoSlideProvider(VideoSlideProvider):
-    """Подкласс VideoSlideProvider (для детекции slides_origin=video_extracted),
-    но с тривиальным конструктором и эмиссией usage стадии video_slides."""
-
-    def __init__(self, slides):
-        self._slides = slides
-
-    async def get_slides(self, output_dir, on_progress=None, on_usage=None):
-        if on_usage:
-            r = on_usage({"model": "gemini-vision", "prompt": 500, "output": 20})
-            if r is not None:
-                await r
-        return self._slides
-
-
-@pytest.mark.asyncio
-async def test_video_extracted_mode_records_video_slides_stage(tmp_path):
-    repo = InMemoryRepo()
-    task = Task(task_id="v3", source_kind="video_file")
-    await repo.create(task)
-    sec = Section(title="s", start="0:00", end="5:00", content="c", slide_indices=[])
-    topics = [Topic(title="T", start="0:00", end="5:00", sections=[sec], slide_indices=[])]
-    service = _service(
-        repo,
-        FakeIngestor(),
-        FakeTranscriber(),
-        FakeStructurizer(topics),
-        RecordingCutter("audio"),
-        RecordingCutter("video"),
-        FakeExporter(),
-    )
-
-    def vsp_factory(_video_path):
-        return _FakeVideoSlideProvider([tmp_path / "slide-01.png"])
-
-    await service.run(
-        task=task,
-        source=VideoFileSource(path=tmp_path / "v.mp4"),
-        slide_provider=None,
-        work_dir=tmp_path,
-        video_slide_provider_factory=vsp_factory,
-    )
-    final = await repo.get("v3")
-    assert final.usage["total"]["source"] == "video"
-    assert final.usage["total"]["slides_origin"] == "video_extracted"
-    assert final.usage["video_slides"]["by_model"]["gemini-vision"]["calls"] == 1
-    assert final.usage["video_slides"]["by_model"]["gemini-vision"]["prompt"] == 500
-    assert final.usage["video_slides"]["raw"] == {}
-    # video_slides входит в total
-    assert final.usage["total"]["gemini_prompt"] == 510  # 500 (slides) + 10 (structurize)

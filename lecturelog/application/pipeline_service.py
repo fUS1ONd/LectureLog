@@ -32,7 +32,6 @@ from lecturelog.domain.ports import (
 )
 from lecturelog.infrastructure.export.structure import build_structure, result_key
 from lecturelog.infrastructure.export.zip_utils import zip_dir
-from lecturelog.infrastructure.slides.video_provider import VideoSlideProvider
 
 logger = logging.getLogger(__name__)
 
@@ -149,9 +148,6 @@ class PipelineService:
         async def structurize_usage(payload: dict):
             acc.record_llm("structurize", payload)
 
-        async def video_slides_usage(payload: dict):
-            acc.record_llm("video_slides", payload)
-
         try:
             # Видео: источник аудио для транскрибации — извлечённая дорожка,
             # источник для нарезки — скачанное/локальное видео. Для аудио оба = source.path.
@@ -216,12 +212,14 @@ class PipelineService:
 
             slide_images: list[Path] = []
             if slide_provider is not None:
-                # Ось slides_origin: video_extracted только для VideoSlideProvider,
-                # иначе document. Завязка на конкретный тип держится в одном месте.
-                is_video_extracted = isinstance(slide_provider, VideoSlideProvider)
+                # Извлечение слайдов из видео удалено (фаза 2/3, VideoSlideProvider
+                # больше не существует): единственный источник слайдов — документ,
+                # slides_origin всегда "document". Стадия PipelineStage.VIDEO_SLIDES
+                # и usage-поле video_slides остаются в domain-моделях ради истории
+                # старых задач, но здесь больше не заполняются.
                 acc.set_mode(
                     source="video" if is_video else "audio",
-                    slides_origin="video_extracted" if is_video_extracted else "document",
+                    slides_origin="document",
                 )
                 await self._set(
                     task,
@@ -230,11 +228,8 @@ class PipelineService:
                 )
                 slide_images = await slide_provider.get_slides(
                     output_dir=work_dir / "slides",
-                    on_usage=video_slides_usage if is_video_extracted else None,
+                    on_usage=None,
                 )
-                # Стадия video_slides существует ⟺ video_extracted.
-                if is_video_extracted:
-                    await self._persist_usage(task, acc)
 
             await self._set(
                 task,
