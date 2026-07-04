@@ -56,9 +56,7 @@ def _build_client(repo, tmp_path, storage):
     app.state.worker = worker
     app.state.work_dir = tmp_path
     app.state.storage = storage
-    app.state.gemini = object()
-    app.state.video_slides_models = ["m"]
-    app.state.concurrency_video = 1
+    app.state.llm = object()
     app.state.prompts_dir = tmp_path
     client = TestClient(app)
     client._worker = worker

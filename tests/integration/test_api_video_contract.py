@@ -43,16 +43,12 @@ def client(tmp_path):
     app.dependency_overrides[deps.get_worker] = lambda: worker
     app.dependency_overrides[deps.get_work_dir] = lambda: tmp_path
     app.dependency_overrides[deps.get_storage] = lambda: storage
-    app.dependency_overrides[deps.get_gemini] = lambda: object()
-    app.dependency_overrides[deps.get_video_slides_config] = lambda: {
-        "models": ["m"],
-        "concurrency": 1,
-        "prompts_dir": tmp_path,
-    }
     app.state.repository = repo
     app.state.worker = worker
     app.state.work_dir = tmp_path
     app.state.storage = storage
+    app.state.llm = object()
+    app.state.prompts_dir = tmp_path
     c = TestClient(app)
     c._repo = repo
     c._worker = worker

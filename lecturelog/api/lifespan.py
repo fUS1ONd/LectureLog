@@ -107,4 +107,6 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await worker.stop()
+        # Закрываем HTTP-клиент OpenRouter, чтобы не оставлять открытые сокеты.
+        await openai_client.close()
         await engine.dispose()

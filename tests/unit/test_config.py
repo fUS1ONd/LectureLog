@@ -40,10 +40,11 @@ def test_worker_default_concurrency(monkeypatch):
 
 
 def test_missing_required_key_raises(monkeypatch):
-    monkeypatch.delenv("GROQ_API_KEYS", raising=False)
+    # Изолируем именно обязательность OPENROUTER_API_KEY: остальное окружение полное.
+    for k, v in _env().items():
+        monkeypatch.setenv(k, v)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.setenv("DATABASE_URL", "x")
-    with pytest.raises(Exception):  # noqa: B017
+    with pytest.raises(Exception, match="OPENROUTER_API_KEY"):  # noqa: B017
         AppConfig()
 
 
