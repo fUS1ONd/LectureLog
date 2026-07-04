@@ -156,14 +156,44 @@ async def test_response_json_sets_response_format():
     assert kwargs["response_format"] == {"type": "json_object"}
 
 
+class SpyModelCooldown(ModelCooldown):
+    """ModelCooldown со шпионом на mark_rate_limited.
+
+    Реальная логика (acquire/задержки) не подменяется — записываем только
+    аргументы вызова, чтобы проверить (модель, ttl) явно.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.marked: list[tuple[str, float]] = []
+
+    async def mark_rate_limited(self, model: str, ttl: float) -> None:
+        self.marked.append((model, ttl))
+        await super().mark_rate_limited(model, ttl)
+
+
 @pytest.mark.asyncio
 async def test_rate_limit_retries_other_model_and_marks_cooldown():
-    cooldown = ModelCooldown()
+    cooldown = SpyModelCooldown()
     fake = FakeAsyncOpenAI([_rate_limit_error(_RPM_RAW), _resp("second model ok")])
     client = LlmClient(fake, cooldown)
     out = await client.call("q", models=["m1", "m2"])
     assert out == "second model ok"
     assert fake.chat.completions.calls == 2
+
+    history = fake.chat.completions.kwargs_history
+    # ретрай ушёл на другую модель, а не повторно на m1
+    assert history[0]["model"] == "m1"
+    assert history[1]["model"] == "m2"
+
+    # BYOK provider форсируется в обоих вызовах (и первом, и ретрае)
+    expected_provider = {"only": ["google-ai-studio"], "allow_fallbacks": False}
+    assert history[0]["extra_body"]["provider"] == expected_provider
+    assert history[1]["extra_body"]["provider"] == expected_provider
+
+    # mark_rate_limited вызван ровно один раз, для m1, с ttl из retryDelay="12s"
+    assert cooldown.marked == [("m1", 12.0)]
+
     # первая модель должна остывать
     picked = await cooldown.acquire(["m1", "m2"])
     assert picked == "m2"
