@@ -46,9 +46,7 @@ def client(cookie_store):
     app.state.worker = None
     app.state.work_dir = None
     app.state.storage = None
-    app.state.gemini = None
-    app.state.video_slides_models = []
-    app.state.concurrency_video = 1
+    app.state.llm = None
     app.state.prompts_dir = None
     app.state.presign_expiry = 3600
     return TestClient(app)

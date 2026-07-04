@@ -11,11 +11,9 @@ from starlette.background import BackgroundTask
 
 from lecturelog.api.dependencies import (
     get_cookie_store,
-    get_gemini,
     get_presign_expiry,
     get_repository,
     get_storage,
-    get_video_slides_config,
     get_work_dir,
     get_worker,
 )
@@ -47,7 +45,6 @@ from lecturelog.domain.media_source import (
 from lecturelog.infrastructure.export.zip_utils import zip_dir
 from lecturelog.infrastructure.media.url_utils import is_url
 from lecturelog.infrastructure.slides.document_provider import DocumentSlideProvider
-from lecturelog.infrastructure.slides.video_provider import VideoSlideProvider
 from lecturelog.infrastructure.srt import srt_to_plain_text
 from lecturelog.infrastructure.youtube.cookie_validation import (
     InvalidCookieFormat,
@@ -125,8 +122,6 @@ async def create_task(
     repository=Depends(get_repository),
     worker=Depends(get_worker),
     work_dir: Path = Depends(get_work_dir),
-    gemini=Depends(get_gemini),
-    video_slides_config: dict = Depends(get_video_slides_config),
 ):
     sources_count = sum(x is not None for x in (audio, video, video_url, s3_key))
     if sources_count != 1:
@@ -184,21 +179,11 @@ async def create_task(
             await _save_upload(slides, slides_path)
             document_provider = DocumentSlideProvider(slides_path=slides_path)
 
-        # Видео-провайдер отложен: video_path появится только после ingest/скачивания.
-        is_video_request = (
-            video is not None or video_url is not None or (s3_key is not None and media == "video")
-        )
+        # Извлечение слайдов из видео отключено (тихая деградация, см. дизайн фаза 2:
+        # VideoSlideProvider завязан на старый genai-контракт, а конфиг видео-моделей
+        # удалён вместе с переходом на LlmClient/OpenRouter). Видео обрабатывается как
+        # аудио-лекция без слайдов; удаление кода VideoSlideProvider — фаза 3.
         video_slide_provider_factory = None
-        if is_video_request:
-
-            def video_slide_provider_factory(local_video: Path):
-                return VideoSlideProvider(
-                    gemini_client=gemini,
-                    video_path=local_video,
-                    models=video_slides_config["models"],
-                    concurrency=video_slides_config["concurrency"],
-                    prompts_dir=video_slides_config["prompts_dir"],
-                )
 
         # Три режима слайдов: no_slides гасит оба провайдера; документ приоритетнее
         # видео; отложенный видео-провайдер строит pipeline после ingest.

@@ -9,7 +9,7 @@ from typing import Any
 
 from lecturelog.domain.models import Section, Topic
 from lecturelog.domain.ports import ProgressCallback, Structurizer, UsageCallback
-from lecturelog.infrastructure.llm.gemini_client import GeminiClient
+from lecturelog.infrastructure.llm.llm_client import LlmClient
 from lecturelog.infrastructure.srt import extract_srt_fragment
 from lecturelog.infrastructure.structurize.slide_backfill import backfill_missing_slides
 from lecturelog.infrastructure.structurize.slide_mapping import normalize_slide_mapping
@@ -44,13 +44,16 @@ class GeminiStructurizer(Structurizer):
 
     def __init__(
         self,
-        gemini_client: GeminiClient,
+        gemini_client: LlmClient,
         split_models: list[str],
         subsplit_models: list[str],
         render_models: list[str],
         concurrency_subsplit: int,
         concurrency_render: int,
         prompts_dir: Path,
+        effort_split: str,
+        effort_subsplit: str,
+        effort_render: str,
     ) -> None:
         self._gemini = gemini_client
         self._split_models = split_models
@@ -59,6 +62,9 @@ class GeminiStructurizer(Structurizer):
         self._concurrency_subsplit = concurrency_subsplit
         self._concurrency_render = concurrency_render
         self._prompts_dir = Path(prompts_dir)
+        self._effort_split = effort_split
+        self._effort_subsplit = effort_subsplit
+        self._effort_render = effort_render
 
     def _read_prompt(self, filename: str) -> str:
         return (self._prompts_dir / filename).read_text(encoding="utf-8")
@@ -83,6 +89,7 @@ class GeminiStructurizer(Structurizer):
                     prompt=f"{split_prompt_template}\n{fragment}",
                     models=self._subsplit_models,
                     on_usage=on_usage,
+                    effort=self._effort_subsplit,
                 )
             sections = _parse_json(raw)
             if not isinstance(sections, list) or not sections:
@@ -129,6 +136,7 @@ class GeminiStructurizer(Structurizer):
                     models=self._subsplit_models,
                     images=topic_slide_bytes,
                     on_usage=on_usage,
+                    effort=self._effort_subsplit,
                 )
             parsed = _parse_json(raw)
             if not isinstance(parsed, dict):
@@ -185,6 +193,7 @@ class GeminiStructurizer(Structurizer):
                 models=self._render_models,
                 images=related_images if related_images else None,
                 on_usage=on_usage,
+                effort=self._effort_render,
             )
         return (
             global_index,
@@ -213,7 +222,10 @@ class GeminiStructurizer(Structurizer):
         await _emit_progress(on_progress, 2)
         split_topics_prompt = f"{self._read_prompt('split_topics_v1.md')}\n{srt_content}"
         split_raw = await self._gemini.call(
-            prompt=split_topics_prompt, models=self._split_models, on_usage=on_usage
+            prompt=split_topics_prompt,
+            models=self._split_models,
+            on_usage=on_usage,
+            effort=self._effort_split,
         )
         topics_data = _parse_json(split_raw)
         if not isinstance(topics_data, list):
@@ -260,6 +272,7 @@ class GeminiStructurizer(Structurizer):
                 models=self._subsplit_models,
                 images=slide_bytes,
                 on_usage=on_usage,
+                effort=self._effort_subsplit,
             )
             rough_mapping = _parse_json(rough_raw)
             if not isinstance(rough_mapping, dict):

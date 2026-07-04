@@ -6,7 +6,7 @@ from lecturelog.config.settings import AppConfig
 def _env(**overrides):
     base = {
         "GROQ_API_KEYS": "g1,g2",
-        "GEMINI_API_KEYS": "k1, k2 ,k3",
+        "OPENROUTER_API_KEY": "or-k1",
         "DATABASE_URL": "postgresql+asyncpg://u:p@db:5432/lecturelog",
         # S3-поля обязательны для построения AppConfig (см. S3Config).
         "S3_INTERNAL_ENDPOINT": "http://minio:9000",
@@ -25,18 +25,11 @@ def test_groq_keys_parsed_and_trimmed(monkeypatch):
     assert cfg.groq.keys == ["g1", "g2"]
 
 
-def test_gemini_keys_trimmed_and_empty_dropped(monkeypatch):
-    for k, v in _env(GEMINI_API_KEYS="k1, , k2 ,").items():
+def test_llm_models_split_into_lists(monkeypatch):
+    for k, v in _env(LLM_MODELS_RENDER="a, b ,c").items():
         monkeypatch.setenv(k, v)
     cfg = AppConfig()
-    assert cfg.gemini.keys == ["k1", "k2"]
-
-
-def test_gemini_models_split_into_lists(monkeypatch):
-    for k, v in _env(GEMINI_MODELS_RENDER="a, b ,c").items():
-        monkeypatch.setenv(k, v)
-    cfg = AppConfig()
-    assert cfg.gemini.render_models == ["a", "b", "c"]
+    assert cfg.llm.render_models == ["a", "b", "c"]
 
 
 def test_worker_default_concurrency(monkeypatch):
@@ -48,7 +41,7 @@ def test_worker_default_concurrency(monkeypatch):
 
 def test_missing_required_key_raises(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEYS", raising=False)
-    monkeypatch.setenv("GEMINI_API_KEYS", "k1")
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setenv("DATABASE_URL", "x")
     with pytest.raises(Exception):  # noqa: B017
         AppConfig()

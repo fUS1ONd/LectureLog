@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from openai import AsyncOpenAI
 
 from lecturelog.application.factories import storage_factory, webhook_notifier_factory
 from lecturelog.application.pipeline_service import PipelineService
@@ -13,8 +14,8 @@ from lecturelog.application.progress_plan import ProgressPlan
 from lecturelog.application.worker import PipelineWorker
 from lecturelog.config.settings import get_config
 from lecturelog.infrastructure.export.obsidian_exporter import ObsidianExporter
-from lecturelog.infrastructure.llm.gemini_client import GeminiClient
-from lecturelog.infrastructure.llm.key_pool import KeyPool
+from lecturelog.infrastructure.llm.llm_client import LlmClient
+from lecturelog.infrastructure.llm.model_cooldown import ModelCooldown
 from lecturelog.infrastructure.media.audio_cutter import FfmpegAudioCutter
 from lecturelog.infrastructure.media.video_cutter import FfmpegVideoCutter
 from lecturelog.infrastructure.media.video_ingestor import VideoIngestor
@@ -42,22 +43,23 @@ async def lifespan(app: FastAPI):
     if interrupted:
         logger.warning("Помечено INTERRUPTED задач после рестарта: %d", interrupted)
 
-    # Клиенты Gemini по каждому ключу -> KeyPool
-    from google import genai  # type: ignore
-
-    clients = [genai.Client(api_key=k) for k in cfg.gemini.keys]
-    pool = KeyPool(clients=clients)
-    gemini = GeminiClient(pool=pool)
+    # Транспорт LLM: OpenRouter (BYOK) через openai SDK вместо пула ключей Gemini.
+    openai_client = AsyncOpenAI(base_url=cfg.llm.base_url, api_key=cfg.llm.openrouter_key)
+    cooldown = ModelCooldown()
+    llm = LlmClient(openai_client, cooldown)
 
     transcriber = GroqTranscriber(groq_api_keys=cfg.groq.keys)
     structurizer = GeminiStructurizer(
-        gemini_client=gemini,
-        split_models=cfg.gemini.split_models,
-        subsplit_models=cfg.gemini.subsplit_models,
-        render_models=cfg.gemini.render_models,
-        concurrency_subsplit=cfg.gemini.concurrency_subsplit,
-        concurrency_render=cfg.gemini.concurrency_render,
+        gemini_client=llm,
+        split_models=cfg.llm.split_models,
+        subsplit_models=cfg.llm.subsplit_models,
+        render_models=cfg.llm.render_models,
+        concurrency_subsplit=cfg.llm.concurrency_subsplit,
+        concurrency_render=cfg.llm.concurrency_render,
         prompts_dir=Path("prompts"),
+        effort_split=cfg.llm.effort_split,
+        effort_subsplit=cfg.llm.effort_subsplit,
+        effort_render=cfg.llm.effort_render,
     )
     # Опциональный вебхук: включается только при заданных URL и секрете.
     notifier = webhook_notifier_factory(cfg.webhook.callback_url, cfg.webhook.secret)
@@ -99,11 +101,7 @@ async def lifespan(app: FastAPI):
     app.state.presign_expiry = cfg.s3.presign_expiry
     # Локальный эфемерный scratch для внутренних стадий пайплайна (не S3).
     app.state.work_dir = Path(os.getenv("WORK_DIR", "/app/data"))
-    # Для отложенного создания VideoSlideProvider в роуте (video_path появляется
-    # только после ingest, поэтому провайдер строится per-task, а не как синглтон).
-    app.state.gemini = gemini
-    app.state.video_slides_models = cfg.gemini.video_slides_models
-    app.state.concurrency_video = cfg.gemini.concurrency_video
+    app.state.llm = llm
     app.state.prompts_dir = Path("prompts")
     try:
         yield

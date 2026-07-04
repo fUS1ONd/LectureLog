@@ -30,17 +30,5 @@ def get_presign_expiry(request: Request) -> int:
     return getattr(request.app.state, "presign_expiry", 3600)
 
 
-def get_gemini(request: Request):
-    return request.app.state.gemini
-
-
 def get_cookie_store(request: Request) -> CookieStore:
     return request.app.state.cookie_store
-
-
-def get_video_slides_config(request: Request) -> dict:
-    return {
-        "models": request.app.state.video_slides_models,
-        "concurrency": request.app.state.concurrency_video,
-        "prompts_dir": request.app.state.prompts_dir,
-    }

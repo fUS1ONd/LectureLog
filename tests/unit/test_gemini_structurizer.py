@@ -24,7 +24,9 @@ class ScriptedGemini:
         self.calls = 0
         self.on_usage_seen = []
 
-    async def call(self, prompt, models, images=None, on_usage=None):
+    async def call(
+        self, prompt, models, images=None, *, on_usage=None, response_json=False, effort=None
+    ):
         self.on_usage_seen.append(on_usage)
         r = self._responses[self.calls]
         self.calls += 1
@@ -40,6 +42,9 @@ def _make_structurizer(gemini, prompts_dir):
         concurrency_subsplit=1,
         concurrency_render=1,
         prompts_dir=prompts_dir,
+        effort_split="low",
+        effort_subsplit="low",
+        effort_render="low",
     )
 
 
