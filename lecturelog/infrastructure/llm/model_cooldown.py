@@ -21,7 +21,10 @@ def seconds_until_pacific_midnight(epoch: float) -> float:
     now = datetime.fromtimestamp(epoch, tz=_PACIFIC)
     tomorrow = (now + timedelta(days=1)).date()
     midnight = datetime(tomorrow.year, tomorrow.month, tomorrow.day, tzinfo=_PACIFIC)
-    return (midnight - now).total_seconds()
+    # Вычитание datetime с одинаковым tzinfo даёт наивную "wall-clock" разницу
+    # и игнорирует смену UTC-смещения в день перехода DST (ошибка ~1ч).
+    # Считаем через абсолютное время (unix timestamp), чтобы DST учитывался верно.
+    return midnight.timestamp() - now.timestamp()
 
 
 class ModelCooldown:
@@ -37,6 +40,10 @@ class ModelCooldown:
         self._lock = asyncio.Lock()
 
     async def acquire(self, models: list[str]) -> str:
+        if not models:
+            # Пустой список моделей — ошибка вызывающего кода, а не повод
+            # падать необработанным IndexError глубоко внутри.
+            raise ValueError("models must not be empty")
         async with self._lock:
             now = self._time()
             soonest, soonest_at = models[0], float("inf")

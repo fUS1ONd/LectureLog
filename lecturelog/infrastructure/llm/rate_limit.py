@@ -10,7 +10,9 @@ def parse_cooldown_ttl(raw: str, *, seconds_to_midnight: float) -> tuple[float, 
     """Из строки metadata.raw (формат ошибки Google) вернуть (ttl_сек, вид).
 
     вид: 'rpm' | 'rpd' | 'unknown'. RPM → retryDelay; RPD → до полуночи Pacific
-    (retryDelay для RPD врёт); иначе → фикс-60с. Парсинг защитный: любой сбой → unknown.
+    (retryDelay для RPD врёт, поэтому для RPD он вообще игнорируется — квота
+    определяется только по quotaId, независимо от того, распарсился retryDelay
+    или нет); иначе → фикс-60с. Парсинг защитный: любой сбой → unknown.
     """
     try:
         data = json.loads(raw)
@@ -23,10 +25,12 @@ def parse_cooldown_ttl(raw: str, *, seconds_to_midnight: float) -> tuple[float, 
                 viol = d.get("violations", [{}])
                 quota_id = viol[0].get("quotaId", "") if viol else ""
             elif "RetryInfo" in t:
-                rd = d.get("retryDelay", "")  # напр. "38s"
-                m = re.match(r"(\d+(?:\.\d+)?)s", rd)
-                if m:
-                    retry_delay = float(m.group(1))
+                rd = d.get("retryDelay")  # напр. "38s"; может быть null/не-строкой
+                if isinstance(rd, str):
+                    m = re.fullmatch(r"(\d+(?:\.\d+)?)s", rd)
+                    if m:
+                        retry_delay = float(m.group(1))
+        # Классификация по quotaId не зависит от того, распарсился retryDelay.
         if "PerDay" in quota_id:
             return seconds_to_midnight, "rpd"
         if "PerMinute" in quota_id:
