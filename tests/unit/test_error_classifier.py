@@ -33,6 +33,17 @@ def test_text_signal_is_rate_limit(text):
     assert classify_error(RuntimeError(text)) is ErrorCode.RATE_LIMIT
 
 
+def test_llm_client_retries_exhausted_is_rate_limit():
+    # Регресс: точный текст, который LlmClient (infrastructure/llm/llm_client.py)
+    # генерит при исчерпании ретраев (см. `raise RuntimeError(f"OpenRouter не дал
+    # ответ за {retries} попыток (429/RESOURCE_EXHAUSTED): {last_error}")`).
+    exc = RuntimeError(
+        "OpenRouter не дал ответ за 5 попыток (429/RESOURCE_EXHAUSTED): "
+        "Error code: 429 - {'error': {'message': 'rate limit exceeded'}}"
+    )
+    assert classify_error(exc) is ErrorCode.RATE_LIMIT
+
+
 def test_file_not_found_is_bad_input():
     assert classify_error(FileNotFoundError("Видеофайл не найден: x")) is ErrorCode.BAD_INPUT
 

@@ -4,8 +4,11 @@ import httpx
 
 from lecturelog.domain.enums import ErrorCode
 
-# Подстроки-сигналы лимита (повторяют эвристику gemini_client._is_rate_limit_error
-# и _is_overload_error: ядро не зависит от типов SDK, классифицирует по тексту).
+# Подстроки-сигналы лимита. LlmClient (infrastructure/llm/llm_client.py) при
+# исчерпании ретраев оборачивает исходную ошибку провайдера в RuntimeError с
+# текстом вида "OpenRouter не дал ответ за N попыток (429/RESOURCE_EXHAUSTED): ...".
+# Ядро классифицирует по тексту, а не по типам SDK — это позволяет распознавать
+# лимит независимо от конкретного провайдера/клиента.
 _RATE_LIMIT_TOKENS = ("429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE")
 
 # Подстроки-сигналы протухших/непринятых YouTube-cookies (текст yt-dlp).
@@ -24,7 +27,7 @@ def classify_error(exc: BaseException) -> ErrorCode:
     # 2) Типовые сигналы битого/нераспознанного входа.
     if isinstance(exc, (FileNotFoundError, ValueError)):
         return ErrorCode.BAD_INPUT
-    # 3) Текстовый сигнал лимита (Gemini оборачивает last_error в RuntimeError).
+    # 3) Текстовый сигнал лимита (LlmClient оборачивает last_error в RuntimeError).
     message = str(exc).upper()
     # Сигнал протухших cookies от yt-dlp.
     if any(token in message for token in _COOKIES_INVALID_TOKENS):
