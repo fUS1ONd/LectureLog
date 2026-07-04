@@ -1,9 +1,28 @@
 # Переход Gemini-вызовов на OpenRouter BYOK — дизайн
 
-Статус: **дизайн утверждён, spike выполнен (2026-07-04) — блокирующих пунктов нет,
-можно кодить**. Проработан через grill-me + brainstorming, ключевые развилки проверены
-живыми запросами к OpenRouter.
+Статус: **фаза 2 (транспорт) ВЫПОЛНЕНА (2026-07-04)** — spike пройден, код-переезд на
+OpenRouter BYOK завершён и влит. Проработан через grill-me + brainstorming, ключевые
+развилки проверены живыми запросами к OpenRouter.
 Дата: 2026-07-04.
+
+> **Итог фазы 2 (транспорт).** Сделано: `LlmClient` на `openai` SDK (форс BYOK
+> `provider.only=google-ai-studio, allow_fallbacks=false`, картинки inline base64,
+> `response_format` json, per-stage `reasoning.effort`+`exclude`), `ModelCooldown` с
+> точным TTL из тела 429 (парсер `rate_limit.py`: RPM→`retryDelay`, RPD→полночь Pacific,
+> иначе фикс-60с, DST-корректно), `LlmConfig` (env `OPENROUTER_API_KEY`/`LLM_*`, per-stage
+> `effort`), `lifespan`/`structurizer` переведены. Удалён мёртвый код: `KeyPool`,
+> `model_limits`, `GeminiClient`, `VideoSlideProvider` (+ их тесты). Извлечение слайдов из
+> видео **тихо отключено** (видео обрабатывается как аудио-лекция; slides_origin всегда
+> `document`); enum `PipelineStage.VIDEO_SLIDES` и usage-поле `video_slides` оставлены в
+> domain-моделях ради истории, но не заполняются. Ворота зелёные: `ruff check`/`format`,
+> `pytest -q` (330 passed).
+>
+> **Хвосты для фазы 3 (НЕ сделано):** удалить `google-genai` из `pyproject.toml`;
+> вычистить ветку `video_slide_provider_factory`/`get_video_slides_config` полностью
+> (в фазе 2 отключено, но плумбинг зачищен частично); убрать `video_slides` из
+> OpenAPI-описания эндпоинта; обновить `.env.example`/деплой (`OPENROUTER_API_KEY`
+> обязательное fail-fast, `LLM_*` вместо `GEMINI_*`, убрать `GEMINI_MODELS_VIDEO_SLIDES`/
+> `GEMINI_CONCURRENCY_VIDEO`); обновить README/документацию.
 
 > **Результаты spike вынесены в раздел [«Результаты spike»](#результаты-spike-выполнен-2026-07-04)
 > ниже.** Он перекрывает часть старых ⚠️/🔬-пометок — при расхождении верить разделу spike.
