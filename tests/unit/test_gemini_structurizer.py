@@ -106,6 +106,32 @@ async def test_structurize_without_slides_builds_topics(tmp_path, prompts_dir):
 
 
 @pytest.mark.asyncio
+async def test_structurize_normalizes_srt_timecodes_with_milliseconds(tmp_path, prompts_dir):
+    """Регресс фазы 2: модель может скопировать полный SRT-таймкод (ЧЧ:ММ:СС,МСС),
+    а ридер веба принимает только ЧЧ:ММ:СС. Ядро обязано нормализовать start/end
+    и в Topic, и в Section, иначе structure.json ломает ридер («Внутренняя ошибка»)."""
+    srt = tmp_path / "t.srt"
+    srt.write_text("1\n00:00:00,040 --> 00:05:00,672\nтекст\n", encoding="utf-8")
+
+    topics_json = json.dumps([{"title": "Тема 1", "start": "00:00:00,040", "end": "00:05:00,672"}])
+    sections_json = json.dumps(
+        [{"title": "Подтема 1", "start": "00:00:00,040", "end": "00:05:00,672"}]
+    )
+    rendered_md = "контент"
+    gemini = ScriptedGemini([topics_json, sections_json, rendered_md])
+
+    structurizer = _make_structurizer(gemini, prompts_dir)
+    topics = await structurizer.structurize(
+        srt_path=srt, slide_images=[], output_dir=tmp_path / "out"
+    )
+
+    assert topics[0].start == "00:00:00"
+    assert topics[0].end == "00:05:00"
+    assert topics[0].sections[0].start == "00:00:00"
+    assert topics[0].sections[0].end == "00:05:00"
+
+
+@pytest.mark.asyncio
 async def test_structurize_subsplit_fallback_on_bad_json(tmp_path, prompts_dir):
     srt = tmp_path / "t.srt"
     srt.write_text("1\n00:00:00,000 --> 00:05:00,000\nтекст\n", encoding="utf-8")

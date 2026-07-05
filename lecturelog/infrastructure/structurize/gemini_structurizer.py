@@ -10,7 +10,7 @@ from typing import Any
 from lecturelog.domain.models import Section, Topic
 from lecturelog.domain.ports import ProgressCallback, Structurizer, UsageCallback
 from lecturelog.infrastructure.llm.llm_client import LlmClient
-from lecturelog.infrastructure.srt import extract_srt_fragment
+from lecturelog.infrastructure.srt import extract_srt_fragment, format_time
 from lecturelog.infrastructure.structurize.slide_backfill import backfill_missing_slides
 from lecturelog.infrastructure.structurize.slide_mapping import normalize_slide_mapping
 
@@ -199,8 +199,10 @@ class GeminiStructurizer(Structurizer):
             global_index,
             Section(
                 title=title,
-                start=start,
-                end=end,
+                # Модель может скопировать полный SRT-таймкод (ЧЧ:ММ:СС,МСС);
+                # ридер веба принимает только ЧЧ:ММ:СС — нормализуем на границе.
+                start=format_time(start),
+                end=format_time(end),
                 content=content.strip(),
                 slide_indices=slide_indices,
             ),
@@ -373,8 +375,9 @@ class GeminiStructurizer(Structurizer):
             result.append(
                 Topic(
                     title=str(topic_data["title"]),
-                    start=str(topic_data["start"]),
-                    end=str(topic_data["end"]),
+                    # Нормализуем таймкод до ЧЧ:ММ:СС (см. Section выше).
+                    start=format_time(str(topic_data["start"])),
+                    end=format_time(str(topic_data["end"])),
                     sections=topic_sections,
                     slide_indices=unique_slides,
                 )
