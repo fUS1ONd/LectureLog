@@ -15,9 +15,10 @@ from tests.support.synthetic_video import (
 
 def _duration(path) -> float:
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(path)],
-        capture_output=True, text=True, check=True,
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return float(out.stdout.strip())
 

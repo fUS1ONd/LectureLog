@@ -3,6 +3,7 @@
 Оба вызова батчевые (≤ vlm_batch картинок), JSON-mode, flash-lite первым в
 fallback-списке. Ошибки VLM НЕ пробрасываются политикам — вызывающий код
 (provider) деградирует до временных сигнатур / пропуска QC (дизайн §10)."""
+
 from __future__ import annotations
 
 import json
@@ -33,9 +34,7 @@ def _encode_jpeg(gray_or_bgr: np.ndarray) -> bytes:
 def _parse_json(raw: str) -> Any:
     text = raw.strip()
     if text.startswith("```"):
-        text = "\n".join(
-            line for line in text.splitlines() if not line.startswith("```")
-        ).strip()
+        text = "\n".join(line for line in text.splitlines() if not line.startswith("```")).strip()
     return json.loads(text)
 
 
@@ -80,8 +79,12 @@ async def classify_regimes(
         batch = regimes[start : start + tuning.vlm_batch]
         images = [_encode_jpeg(f) for f in rep_frames[start : start + tuning.vlm_batch]]
         raw = await llm.call(
-            prompt=prompt, models=models, images=images,
-            on_usage=on_usage, response_json=True, effort=effort,
+            prompt=prompt,
+            models=models,
+            images=images,
+            on_usage=on_usage,
+            response_json=True,
+            effort=effort,
         )
         verdicts = _parse_json(raw)
         if not isinstance(verdicts, list):
@@ -128,8 +131,12 @@ async def qc_frames(
         images = [_encode_jpeg(cv2.imread(str(item.path))) for item in batch]
         try:
             raw = await llm.call(
-                prompt=f"{base_prompt}\n\nКадры:\n{legend}", models=models,
-                images=images, on_usage=on_usage, response_json=True, effort=effort,
+                prompt=f"{base_prompt}\n\nКадры:\n{legend}",
+                models=models,
+                images=images,
+                on_usage=on_usage,
+                response_json=True,
+                effort=effort,
             )
             verdicts = _parse_json(raw)
             by_idx = {int(v["idx"]): v for v in verdicts if isinstance(v, dict)}
@@ -151,8 +158,11 @@ async def qc_frames(
                     continue
                 seen_groups.add(group)
             caption = v.get("caption")
-            result.append(SlideImage(
-                path=item.path, timestamp=item.timestamp,
-                caption=str(caption) if caption else None,
-            ))
+            result.append(
+                SlideImage(
+                    path=item.path,
+                    timestamp=item.timestamp,
+                    caption=str(caption) if caption else None,
+                )
+            )
     return result

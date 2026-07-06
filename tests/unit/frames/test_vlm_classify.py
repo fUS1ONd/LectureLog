@@ -12,8 +12,17 @@ class FakeLlm:
         self._responses = list(responses)
         self.calls = []
 
-    async def call(self, prompt, models, images=None, *, on_usage=None,
-                   response_json=False, effort=None, retries=5):
+    async def call(
+        self,
+        prompt,
+        models,
+        images=None,
+        *,
+        on_usage=None,
+        response_json=False,
+        effort=None,
+        retries=5,
+    ):
         self.calls.append({"prompt": prompt, "images": images})
         if on_usage is not None:
             # on_usage может быть как sync, так и async (см. UsageCallback) —
@@ -37,16 +46,34 @@ def _thumb():
 
 
 async def test_classify_applies_vlm_verdicts_and_bbox():
-    resp = json.dumps([
-        {"idx": 1, "type": "slides", "content_bbox": [0.1, 0.1, 0.8, 0.8], "board_kind": "none"},
-        {"idx": 2, "type": "board", "content_bbox": [0.0, 0.0, 1.0, 0.9], "board_kind": "chalk"},
-        {"idx": 3, "type": "code", "content_bbox": [0.05, 0.0, 0.9, 1.0], "board_kind": "none"},
-    ])
+    resp = json.dumps(
+        [
+            {
+                "idx": 1,
+                "type": "slides",
+                "content_bbox": [0.1, 0.1, 0.8, 0.8],
+                "board_kind": "none",
+            },
+            {
+                "idx": 2,
+                "type": "board",
+                "content_bbox": [0.0, 0.0, 1.0, 0.9],
+                "board_kind": "chalk",
+            },
+            {"idx": 3, "type": "code", "content_bbox": [0.05, 0.0, 0.9, 1.0], "board_kind": "none"},
+        ]
+    )
     llm = FakeLlm([resp])
     regimes = _regimes()
     out = await classify_regimes(
-        llm, ["m"], "low", regimes, [_thumb()] * 3,
-        micro_rate=[0.0, 0.0, 0.8], tuning=FramesTuning(), on_usage=None,
+        llm,
+        ["m"],
+        "low",
+        regimes,
+        [_thumb()] * 3,
+        micro_rate=[0.0, 0.0, 0.8],
+        tuning=FramesTuning(),
+        on_usage=None,
     )
     assert [r.kind for r in out] == ["slides", "board", "code"]
     assert out[1].board_kind == "chalk"
@@ -55,37 +82,72 @@ async def test_classify_applies_vlm_verdicts_and_bbox():
 
 async def test_tie_breaker_slides_with_code_screenshot():
     # VLM говорит code, но временнáя сигнатура «не печатает» → остаётся slides
-    resp = json.dumps([
-        {"idx": 1, "type": "code", "content_bbox": [0.1, 0.1, 0.8, 0.8], "board_kind": "none"},
-    ])
+    resp = json.dumps(
+        [
+            {"idx": 1, "type": "code", "content_bbox": [0.1, 0.1, 0.8, 0.8], "board_kind": "none"},
+        ]
+    )
     out = await classify_regimes(
-        FakeLlm([resp]), ["m"], "low", [Regime(0, 60, "slides")], [_thumb()],
-        micro_rate=[0.0], tuning=FramesTuning(), on_usage=None,
+        FakeLlm([resp]),
+        ["m"],
+        "low",
+        [Regime(0, 60, "slides")],
+        [_thumb()],
+        micro_rate=[0.0],
+        tuning=FramesTuning(),
+        on_usage=None,
     )
     assert out[0].kind == "slides"
 
 
 async def test_implausible_bbox_falls_back_to_none():
-    resp = json.dumps([
-        {"idx": 1, "type": "slides", "content_bbox": [0.9, 0.9, 0.05, 0.05], "board_kind": "none"},
-    ])
+    resp = json.dumps(
+        [
+            {
+                "idx": 1,
+                "type": "slides",
+                "content_bbox": [0.9, 0.9, 0.05, 0.05],
+                "board_kind": "none",
+            },
+        ]
+    )
     out = await classify_regimes(
-        FakeLlm([resp]), ["m"], "low", [Regime(0, 60, "slides")], [_thumb()],
-        micro_rate=[0.0], tuning=FramesTuning(), on_usage=None,
+        FakeLlm([resp]),
+        ["m"],
+        "low",
+        [Regime(0, 60, "slides")],
+        [_thumb()],
+        micro_rate=[0.0],
+        tuning=FramesTuning(),
+        on_usage=None,
     )
     assert out[0].bbox is None  # площадь < 10% — не верим
 
 
 async def test_batching_over_16_regimes():
     n = 20
-    r1 = json.dumps([{"idx": i + 1, "type": "slides", "content_bbox": None,
-                      "board_kind": "none"} for i in range(16)])
-    r2 = json.dumps([{"idx": i + 1, "type": "slides", "content_bbox": None,
-                      "board_kind": "none"} for i in range(4)])
+    r1 = json.dumps(
+        [
+            {"idx": i + 1, "type": "slides", "content_bbox": None, "board_kind": "none"}
+            for i in range(16)
+        ]
+    )
+    r2 = json.dumps(
+        [
+            {"idx": i + 1, "type": "slides", "content_bbox": None, "board_kind": "none"}
+            for i in range(4)
+        ]
+    )
     llm = FakeLlm([r1, r2])
     out = await classify_regimes(
-        llm, ["m"], "low", [Regime(i * 30, (i + 1) * 30, "other") for i in range(n)],
-        [_thumb()] * n, micro_rate=[0.0] * n, tuning=FramesTuning(), on_usage=None,
+        llm,
+        ["m"],
+        "low",
+        [Regime(i * 30, (i + 1) * 30, "other") for i in range(n)],
+        [_thumb()] * n,
+        micro_rate=[0.0] * n,
+        tuning=FramesTuning(),
+        on_usage=None,
     )
     assert len(llm.calls) == 2 and len(out) == n
 
@@ -100,15 +162,22 @@ async def test_mid_batch_failure_leaves_regimes_untouched():
                 raise RuntimeError("free tier исчерпан")
             return await super().call(*args, **kwargs)
 
-    resp = json.dumps([
-        {"idx": 1, "type": "code", "content_bbox": [0.1, 0.1, 0.8, 0.8],
-         "board_kind": "none"},
-    ])
+    resp = json.dumps(
+        [
+            {"idx": 1, "type": "code", "content_bbox": [0.1, 0.1, 0.8, 0.8], "board_kind": "none"},
+        ]
+    )
     regimes = [Regime(0, 60, "slides"), Regime(60, 120, "board")]
     try:
         await classify_regimes(
-            HalfBrokenLlm([resp]), ["m"], "low", regimes, [_thumb()] * 2,
-            micro_rate=[0.9, 0.9], tuning=FramesTuning(vlm_batch=1), on_usage=None,
+            HalfBrokenLlm([resp]),
+            ["m"],
+            "low",
+            regimes,
+            [_thumb()] * 2,
+            micro_rate=[0.9, 0.9],
+            tuning=FramesTuning(vlm_batch=1),
+            on_usage=None,
         )
         raise AssertionError("ожидался проброс ошибки VLM")
     except RuntimeError:

@@ -3,6 +3,7 @@
 Кадр рождается с таймстемпом; привязка = поиск секции по интервалу +
 монотонизация (кадры не скачут назад по секциям). LLM-матчинг не нужен —
 он остаётся только документным слайдам."""
+
 from __future__ import annotations
 
 import bisect
@@ -29,7 +30,7 @@ def bind_frames_to_sections(items: list[SlideImage], topics: list[Topic]) -> Non
     for order, item in enumerate(sorted(items, key=lambda x: x.timestamp), start=1):
         # Последняя секция, начавшаяся не позже ts; до первой секции → секция 0
         idx = max(0, bisect.bisect_right(starts, item.timestamp) - 1)
-        idx = max(idx, prev_idx)          # монотонизация
+        idx = max(idx, prev_idx)  # монотонизация
         idx = min(idx, len(sections) - 1)  # хвост за последней секцией → последняя
         sections[idx].slide_indices.append(order)
         prev_idx = idx

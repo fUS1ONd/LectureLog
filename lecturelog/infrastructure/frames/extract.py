@@ -4,6 +4,7 @@
 внутри окна ±seek_window_s — кадр максимальной резкости. Доска отдаётся из
 background model: full-res реконструкция хвостового окна перед кандидатом
 (человек стёрт) + whiteboard cleanup."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -68,8 +69,9 @@ def render_candidates(
         if cand.pair_ts is not None:
             # Пара «код+вывод»: второй кадр после переключения окна
             idx += 1
-            paired = Candidate(ts=cand.pair_ts, kind=cand.kind,
-                               regime=cand.regime, source="raw_frame")
+            paired = Candidate(
+                ts=cand.pair_ts, kind=cand.kind, regime=cand.regime, source="raw_frame"
+            )
             items.append(_render_one(video, paired, cand.pair_ts, out_dir, idx, tuning))
     return items
 

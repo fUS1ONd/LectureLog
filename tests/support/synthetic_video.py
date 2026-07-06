@@ -5,6 +5,7 @@ ffmpeg rawvideo-пайп. Генераторы имитируют сигнату
 слайды (ступеньки+плато), доска (накопление ink + препод + стирание),
 live-coding (мелкие диффы + курсор + скролл), спикер (крупное движение).
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -19,10 +20,26 @@ def write_video(frames: list[np.ndarray], path: Path, fps: int = 1) -> Path:
     h, w = frames[0].shape[:2]
     subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
-            "-f", "rawvideo", "-pix_fmt", "gray", "-s", f"{w}x{h}", "-r", str(fps),
-            "-i", "pipe:0",
-            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "gray",
+            "-s",
+            f"{w}x{h}",
+            "-r",
+            str(fps),
+            "-i",
+            "pipe:0",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
             str(path),
         ],
         input=b"".join(np.ascontiguousarray(f).tobytes() for f in frames),

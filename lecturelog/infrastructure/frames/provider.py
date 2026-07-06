@@ -4,6 +4,7 @@
 structurize. CPU-стадии выполняются в to_thread, VLM-сбои деградируют
 (дизайн §10), но исключения инфраструктуры (ffmpeg) пробрасываются —
 их гасит стадия в pipeline (философия no_slides)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -35,8 +36,11 @@ def _parse_srt_blocks(srt_text: str) -> list[tuple[float, str]]:
         m = _SRT_TIME.search(block)
         if not m:
             continue
-        lines = [line.strip() for line in block.splitlines()
-                 if line.strip() and not line.strip().isdigit() and "-->" not in line]
+        lines = [
+            line.strip()
+            for line in block.splitlines()
+            if line.strip() and not line.strip().isdigit() and "-->" not in line
+        ]
         blocks.append((parse_srt_time(m.group(1)), " ".join(lines)))
     return blocks
 
@@ -75,7 +79,8 @@ class VideoFrameProvider(SlideProvider):
         track: SignalTrack = await asyncio.to_thread(
             lambda: compute_signals(
                 decode_gray(self._video, fps=t.analysis_fps, width=t.analysis_width),
-                fps=t.analysis_fps, thumbs=store,
+                fps=t.analysis_fps,
+                thumbs=store,
             )
         )
         # B: сегментация
@@ -85,15 +90,23 @@ class VideoFrameProvider(SlideProvider):
         try:
             reps, micro = self._representatives(regimes, track, store)
             regimes = await vlm.classify_regimes(
-                self._llm, self._models, self._effort, regimes, reps, micro,
-                t, on_usage=on_usage, prompts_dir=self._prompts_dir,
+                self._llm,
+                self._models,
+                self._effort,
+                regimes,
+                reps,
+                micro,
+                t,
+                on_usage=on_usage,
+                prompts_dir=self._prompts_dir,
             )
         except Exception as error:  # noqa: BLE001 — деградация по дизайну §10
             logger.warning("VLM-классификация недоступна (%s): типы из сигнатур", error)
 
         # D: пер-режимные политики
         candidates = await asyncio.to_thread(
-            self._collect_candidates, regimes, track, store, srt_blocks)
+            self._collect_candidates, regimes, track, store, srt_blocks
+        )
         if len(candidates) > t.max_candidates:
             candidates = sorted(candidates, key=lambda c: c.score, reverse=True)
             candidates = sorted(candidates[: t.max_candidates], key=lambda c: c.ts)
@@ -106,26 +119,29 @@ class VideoFrameProvider(SlideProvider):
             return []
 
         # E: качественная выемка
-        items = await asyncio.to_thread(
-            render_candidates, self._video, candidates, output_dir, t)
+        items = await asyncio.to_thread(render_candidates, self._video, candidates, output_dir, t)
 
         # F: QC + подписи; сбой → кадры без QC (чуть грязнее, но стадия работает)
         try:
             items = await vlm.qc_frames(
-                self._llm, self._models, self._effort, items,
+                self._llm,
+                self._models,
+                self._effort,
+                items,
                 srt_text_at=lambda ts: self._nearest_text(srt_blocks, ts),
-                tuning=t, on_usage=on_usage, prompts_dir=self._prompts_dir,
+                tuning=t,
+                on_usage=on_usage,
+                prompts_dir=self._prompts_dir,
             )
         except Exception as error:  # noqa: BLE001 — деградация по дизайну §10
             logger.warning("VLM QC недоступен (%s): кадры без подписей", error)
 
         return sorted(items, key=lambda i: i.timestamp)
 
-    def _representatives(
-        self, regimes: list[Regime], track: SignalTrack, store: ThumbStore
-    ):
+    def _representatives(self, regimes: list[Regime], track: SignalTrack, store: ThumbStore):
         """Репрезентативный кадр режима — самый резкий из 3 сэмплов середины."""
         import cv2
+
         reps, micro = [], []
         for r in regimes:
             mid = int((r.start_s + r.end_s) / 2 * track.fps)
@@ -139,9 +155,7 @@ class VideoFrameProvider(SlideProvider):
             micro.append(float(micro_mask.mean()) if len(seg_mad) else 0.0)
         return reps, micro
 
-    def _collect_candidates(
-        self, regimes, track, store, srt_blocks
-    ) -> list[Candidate]:
+    def _collect_candidates(self, regimes, track, store, srt_blocks) -> list[Candidate]:
         t = self._tuning
         out: list[Candidate] = []
         for regime in regimes:
@@ -151,11 +165,20 @@ class VideoFrameProvider(SlideProvider):
                 out.extend(board_candidates(regime, track, store, t))
             elif regime.kind in ("code", "terminal"):
                 # Передекод отрезка на code_fps: 1 fps печать не видит
-                frames = list(decode_gray(self._video, fps=t.code_fps, width=t.code_width,
-                                          start_s=regime.start_s, end_s=regime.end_s))
-                out.extend(coding_candidates_from_frames(
-                    frames, fps=t.code_fps, regime=regime, tuning=t,
-                    srt_blocks=srt_blocks))
+                frames = list(
+                    decode_gray(
+                        self._video,
+                        fps=t.code_fps,
+                        width=t.code_width,
+                        start_s=regime.start_s,
+                        end_s=regime.end_s,
+                    )
+                )
+                out.extend(
+                    coding_candidates_from_frames(
+                        frames, fps=t.code_fps, regime=regime, tuning=t, srt_blocks=srt_blocks
+                    )
+                )
             elif regime.kind == "camera":
                 # Ручная камера: разреженный отбор — плато-политика, всё решит QC
                 out.extend(slide_candidates(regime, track, store, t))

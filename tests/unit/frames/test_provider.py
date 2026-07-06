@@ -17,8 +17,7 @@ SRT = """1
 
 def _video(tmp_path):
     # 30с спикер + 90с слайды (3 слайда по 30с)
-    frames = speaker_frames(total_secs=30, seed=1) + slides_frames(
-        n_slides=3, secs_per_slide=30)
+    frames = speaker_frames(total_secs=30, seed=1) + slides_frames(n_slides=3, secs_per_slide=30)
     return write_video(frames, tmp_path / "lecture.mp4", fps=1)
 
 
@@ -29,33 +28,40 @@ def _srt(tmp_path):
 
 
 def _classify_resp(kinds):
-    return json.dumps([
-        {"idx": i + 1, "type": k, "content_bbox": None, "board_kind": "none"}
-        for i, k in enumerate(kinds)
-    ])
+    return json.dumps(
+        [
+            {"idx": i + 1, "type": k, "content_bbox": None, "board_kind": "none"}
+            for i, k in enumerate(kinds)
+        ]
+    )
 
 
 def _qc_keep_all(n):
-    return json.dumps([
-        {"idx": i + 1, "keep": True, "caption": f"Слайд {i + 1}", "dup_group": None}
-        for i in range(n)
-    ])
+    return json.dumps(
+        [
+            {"idx": i + 1, "keep": True, "caption": f"Слайд {i + 1}", "dup_group": None}
+            for i in range(n)
+        ]
+    )
 
 
 async def test_end_to_end_slides_lecture(tmp_path):
     llm = FakeLlm([_classify_resp(["speaker", "slides"]), _qc_keep_all(3)])
     provider = VideoFrameProvider(
-        video_path=_video(tmp_path), srt_path=_srt(tmp_path),
-        llm=llm, models=["m"], effort="low", tuning=FramesTuning(),
+        video_path=_video(tmp_path),
+        srt_path=_srt(tmp_path),
+        llm=llm,
+        models=["m"],
+        effort="low",
+        tuning=FramesTuning(),
     )
     usage_events = []
-    items = await provider.get_slides(tmp_path / "out",
-                                      on_usage=lambda p: usage_events.append(p))
-    assert 2 <= len(items) <= 3          # по кандидату на слайд
+    items = await provider.get_slides(tmp_path / "out", on_usage=lambda p: usage_events.append(p))
+    assert 2 <= len(items) <= 3  # по кандидату на слайд
     assert all(i.timestamp is not None and i.timestamp >= 30 for i in items)
     assert all(i.caption for i in items)  # подписи из QC
     assert items == sorted(items, key=lambda i: i.timestamp)
-    assert len(usage_events) == 2         # classify + qc
+    assert len(usage_events) == 2  # classify + qc
 
 
 async def test_vlm_down_degrades_to_signatures(tmp_path):
@@ -64,8 +70,12 @@ async def test_vlm_down_degrades_to_signatures(tmp_path):
             raise RuntimeError("free tier исчерпан")
 
     provider = VideoFrameProvider(
-        video_path=_video(tmp_path), srt_path=_srt(tmp_path),
-        llm=BrokenLlm(), models=["m"], effort="low", tuning=FramesTuning(),
+        video_path=_video(tmp_path),
+        srt_path=_srt(tmp_path),
+        llm=BrokenLlm(),
+        models=["m"],
+        effort="low",
+        tuning=FramesTuning(),
     )
     items = await provider.get_slides(tmp_path / "out")
     # Классификация по сигнатурам B, QC пропущен — кадры есть, подписей нет
@@ -77,8 +87,12 @@ async def test_speaker_only_video_returns_empty(tmp_path):
     video = write_video(speaker_frames(total_secs=60, seed=2), tmp_path / "v.mp4")
     llm = FakeLlm([_classify_resp(["speaker"])])
     provider = VideoFrameProvider(
-        video_path=video, srt_path=_srt(tmp_path),
-        llm=llm, models=["m"], effort="low", tuning=FramesTuning(),
+        video_path=video,
+        srt_path=_srt(tmp_path),
+        llm=llm,
+        models=["m"],
+        effort="low",
+        tuning=FramesTuning(),
     )
     assert await provider.get_slides(tmp_path / "out") == []  # это норма (дизайн §1)
 

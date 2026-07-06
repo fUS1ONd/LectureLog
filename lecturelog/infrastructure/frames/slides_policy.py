@@ -1,4 +1,5 @@
 """Стадия D3: политика слайдов — плато и дедуп прогрессивных builds (дизайн §5.D3)."""
+
 from __future__ import annotations
 
 import cv2

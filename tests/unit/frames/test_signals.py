@@ -7,7 +7,8 @@ from tests.support.synthetic_video import board_frames, slides_frames, typing_fr
 
 def test_dhash_identical_and_different():
     a = np.full((90, 160), 100, dtype=np.uint8)
-    b = a.copy(); b[:, :80] = 200
+    b = a.copy()
+    b[:, :80] = 200
     assert dhash(a) == dhash(a.copy())
     assert dhash(a) != dhash(b)
 

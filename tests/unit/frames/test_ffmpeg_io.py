@@ -53,8 +53,19 @@ def test_decode_gray_raises_on_corrupt_stream(tmp_path):
 
     fast = tmp_path / "fast.mp4"
     subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(_video(tmp_path)),
-         "-c", "copy", "-movflags", "+faststart", str(fast)],
+        [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(_video(tmp_path)),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(fast),
+        ],
         check=True,
     )
     trunc = tmp_path / "trunc.mp4"

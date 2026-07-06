@@ -16,6 +16,7 @@
 OPENROUTER_BASE_URL, LLM_MODELS_VIDEO_SLIDES, LLM_EFFORT_VIDEO_SLIDES) —
 те же переменные, что использует прод (lecturelog.config.settings.FramesConfig).
 С --no-vlm стадии C/F пропускаются — чистый CV-прогон без сети и без токенов."""
+
 from __future__ import annotations
 
 import argparse
@@ -90,13 +91,20 @@ def _collect_candidates(
         elif regime.kind == "board":
             out.extend(board_candidates(regime, track, store, tuning))
         elif regime.kind in ("code", "terminal"):
-            frames = list(decode_gray(
-                video, fps=tuning.code_fps, width=tuning.code_width,
-                start_s=regime.start_s, end_s=regime.end_s,
-            ))
-            out.extend(coding_candidates_from_frames(
-                frames, fps=tuning.code_fps, regime=regime, tuning=tuning,
-                srt_blocks=srt_blocks))
+            frames = list(
+                decode_gray(
+                    video,
+                    fps=tuning.code_fps,
+                    width=tuning.code_width,
+                    start_s=regime.start_s,
+                    end_s=regime.end_s,
+                )
+            )
+            out.extend(
+                coding_candidates_from_frames(
+                    frames, fps=tuning.code_fps, regime=regime, tuning=tuning, srt_blocks=srt_blocks
+                )
+            )
         elif regime.kind == "camera":
             out.extend(slide_candidates(regime, track, store, tuning))
     return sorted(out, key=lambda c: c.ts)
@@ -131,11 +139,15 @@ async def run(args: argparse.Namespace) -> None:
     with timer.track("A_signals"):
         track = compute_signals(
             decode_gray(video, fps=tuning.analysis_fps, width=tuning.analysis_width),
-            fps=tuning.analysis_fps, thumbs=store,
+            fps=tuning.analysis_fps,
+            thumbs=store,
         )
     np.savez(
         out_dir / "signals.npz",
-        mad=track.mad, motion_frac=track.motion_frac, edge=track.edge, shift=track.shift,
+        mad=track.mad,
+        motion_frac=track.motion_frac,
+        edge=track.edge,
+        shift=track.shift,
         fps=track.fps,
     )
 
@@ -152,22 +164,40 @@ async def run(args: argparse.Namespace) -> None:
 
         with timer.track("C_vlm_classify"):
             reps, micro = VideoFrameProvider._representatives(
-                VideoFrameProvider(video, srt, llm, models, effort, tuning), regimes, track, store,
+                VideoFrameProvider(video, srt, llm, models, effort, tuning),
+                regimes,
+                track,
+                store,
             )
             try:
                 regimes = await vlm.classify_regimes(
-                    llm, models, effort, regimes, reps, micro, tuning,
+                    llm,
+                    models,
+                    effort,
+                    regimes,
+                    reps,
+                    micro,
+                    tuning,
                     on_usage=timer.on_usage,
                 )
             except Exception as error:  # noqa: BLE001 — деградация как в provider
                 logger.warning("VLM-классификация недоступна (%s): типы из сигнатур", error)
 
     (out_dir / "regimes.json").write_text(
-        json.dumps([
-            {"start_s": r.start_s, "end_s": r.end_s, "kind": r.kind,
-             "bbox": r.bbox, "board_kind": r.board_kind}
-            for r in regimes
-        ], ensure_ascii=False, indent=2),
+        json.dumps(
+            [
+                {
+                    "start_s": r.start_s,
+                    "end_s": r.end_s,
+                    "kind": r.kind,
+                    "bbox": r.bbox,
+                    "board_kind": r.board_kind,
+                }
+                for r in regimes
+            ],
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
@@ -180,11 +210,15 @@ async def run(args: argparse.Namespace) -> None:
         candidates = sorted(candidates[: tuning.max_candidates], key=lambda c: c.ts)
     candidates = VideoFrameProvider._cap_by_frames(candidates, tuning.max_frames)
     (out_dir / "candidates.json").write_text(
-        json.dumps({
-            "before_cap": candidates_before_cap,
-            "after_cap": len(candidates),
-            "items": [_candidate_to_dict(c) for c in candidates],
-        }, ensure_ascii=False, indent=2),
+        json.dumps(
+            {
+                "before_cap": candidates_before_cap,
+                "after_cap": len(candidates),
+                "items": [_candidate_to_dict(c) for c in candidates],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
@@ -208,8 +242,13 @@ async def run(args: argparse.Namespace) -> None:
         with timer.track("F_vlm_qc"):
             try:
                 items = await vlm.qc_frames(
-                    llm, models, effort, items, srt_text_at=srt_text_at,
-                    tuning=tuning, on_usage=timer.on_usage,
+                    llm,
+                    models,
+                    effort,
+                    items,
+                    srt_text_at=srt_text_at,
+                    tuning=tuning,
+                    on_usage=timer.on_usage,
                 )
             except Exception as error:  # noqa: BLE001 — деградация как в provider
                 logger.warning("VLM QC недоступен (%s): кадры без подписей", error)
@@ -245,21 +284,25 @@ def _print_summary(regimes, items, timer: _StageTimer, no_vlm: bool) -> None:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("video", type=Path, help="путь к видео лекции")
     parser.add_argument("srt", type=Path, help="путь к SRT-транскрипту")
     parser.add_argument("out_dir", type=Path, help="каталог для дампа отладки")
     parser.add_argument(
-        "--no-vlm", action="store_true",
+        "--no-vlm",
+        action="store_true",
         help="пропустить стадии C/F (VLM) — чистый CV-прогон без сети и без токенов",
     )
     parser.add_argument(
-        "--models", default=None,
+        "--models",
+        default=None,
         help="список моделей VLM через запятую (по умолчанию — env LLM_MODELS_VIDEO_SLIDES)",
     )
     parser.add_argument(
-        "--effort", default=None,
+        "--effort",
+        default=None,
         help="reasoning effort для VLM-вызовов (по умолчанию — LLM_EFFORT_VIDEO_SLIDES)",
     )
     return parser.parse_args(argv)

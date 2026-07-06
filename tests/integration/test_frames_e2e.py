@@ -4,6 +4,7 @@ VideoFrameProvider.get_slides с FakeLlm (дизайн §13, задача 18).
 Проверяем воронку целиком (A-F), а не отдельные политики: кадры приходят
 только из режимов «слайды»/«доска», ни одного из спикерского интервала,
 тайминги монотонны, файлы существуют, суффиксы соответствуют формату рендера."""
+
 from __future__ import annotations
 
 import inspect
@@ -56,10 +57,12 @@ def _srt(tmp_path):
 
 
 def _qc_keep_all(n: int) -> str:
-    return json.dumps([
-        {"idx": i + 1, "keep": True, "caption": f"Кадр {i + 1}", "dup_group": None}
-        for i in range(n)
-    ])
+    return json.dumps(
+        [
+            {"idx": i + 1, "keep": True, "caption": f"Кадр {i + 1}", "dup_group": None}
+            for i in range(n)
+        ]
+    )
 
 
 class _DegradeClassifyQcKeepAllLlm:
@@ -72,8 +75,17 @@ class _DegradeClassifyQcKeepAllLlm:
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
-    async def call(self, prompt, models, images=None, *, on_usage=None,
-                    response_json=False, effort=None, retries=5):
+    async def call(
+        self,
+        prompt,
+        models,
+        images=None,
+        *,
+        on_usage=None,
+        response_json=False,
+        effort=None,
+        retries=5,
+    ):
         self.calls.append({"prompt": prompt, "images": images})
         is_classify = len(self.calls) == 1
         if on_usage is not None:
@@ -91,8 +103,12 @@ async def test_mixed_lecture_speaker_slides_board(tmp_path):
     llm = _DegradeClassifyQcKeepAllLlm()
 
     provider = VideoFrameProvider(
-        video_path=video, srt_path=srt,
-        llm=llm, models=["m"], effort="low", tuning=FramesTuning(),
+        video_path=video,
+        srt_path=srt,
+        llm=llm,
+        models=["m"],
+        effort="low",
+        tuning=FramesTuning(),
     )
     items = await provider.get_slides(tmp_path / "out")
 

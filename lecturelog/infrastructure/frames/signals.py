@@ -2,6 +2,7 @@
 
 Один линейный проход по потоку gray-кадров; всё численно дёшево
 (< 1 мин на 5400 кадров 320px). Попутно пишутся JPEG-тумбы."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -12,8 +13,8 @@ import numpy as np
 from lecturelog.infrastructure.frames.ffmpeg_io import ThumbStore
 from lecturelog.infrastructure.frames.types import SignalTrack
 
-_MOTION_THRESH = 15     # порог бинаризации диффа
-_EDGE_THRESH = 40.0     # порог магнитуды Sobel для «пикселя-грани»
+_MOTION_THRESH = 15  # порог бинаризации диффа
+_EDGE_THRESH = 40.0  # порог магнитуды Sobel для «пикселя-грани»
 _DILATE = np.ones((3, 3), np.uint8)
 
 

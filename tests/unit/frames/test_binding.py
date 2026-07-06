@@ -6,8 +6,7 @@ from lecturelog.infrastructure.frames.binding import bind_frames_to_sections
 
 
 def _topic(sections):
-    return Topic(title="Тема", start=sections[0].start, end=sections[-1].end,
-                 sections=sections)
+    return Topic(title="Тема", start=sections[0].start, end=sections[-1].end, sections=sections)
 
 
 def _sections():
@@ -47,6 +46,7 @@ def test_monotonic_no_backward_jumps():
 
 def test_document_slides_are_rejected():
     import pytest
+
     topics = [_topic(_sections())]
     with pytest.raises(ValueError):
         bind_frames_to_sections([SlideImage(path=Path("s.png"))], topics)

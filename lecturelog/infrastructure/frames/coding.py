@@ -11,6 +11,7 @@ edit-burst → тишина → кандидат; транскрипт — бе�
 (окно edit_smooth_s) перед сравнением с порогами edit_area_*, что и
 разводит печать (плато сглаженного сигнала выше порога) и мигание
 (плато ниже порога)."""
+
 from __future__ import annotations
 
 from collections import deque
@@ -22,9 +23,19 @@ from lecturelog.infrastructure.frames.types import Candidate, FramesTuning, Regi
 
 # Словарь триггеров завершённости из транскрипта (дизайн §5.D2)
 _TRIGGERS = (
-    "запустим", "запускаем", "скомпилируем", "компилируем", "сохраняем",
-    "сохраним", "вот и всё", "вот и все", "готово", "смотрите, что получилось",
-    "посмотрим, что получилось", "выполним", "проверим",
+    "запустим",
+    "запускаем",
+    "скомпилируем",
+    "компилируем",
+    "сохраняем",
+    "сохраним",
+    "вот и всё",
+    "вот и все",
+    "готово",
+    "смотрите, что получилось",
+    "посмотрим, что получилось",
+    "выполним",
+    "проверим",
 )
 
 
@@ -52,9 +63,9 @@ def coding_candidates_from_frames(
     smooth_window = max(1, round(tuning.edit_smooth_s * fps))
 
     candidates: list[Candidate] = []
-    edit_accum = 0.0      # накопленные кадры-правки текущего burst
+    edit_accum = 0.0  # накопленные кадры-правки текущего burst
     quiet_run = 0.0
-    burst_done = False    # был ли burst, ждущий точку остановки
+    burst_done = False  # был ли burst, ждущий точку остановки
     last_switch_ts: float | None = None
     recent_raw: deque[float] = deque(maxlen=smooth_window)
 
@@ -65,8 +76,10 @@ def coding_candidates_from_frames(
         area = sum(recent_raw) / len(recent_raw)  # сглаженный сигнал правок
         # Скролл распознаём по мгновенному сдвигу, а не по сглаженной площади:
         # одиночный кадр скролла — большой вертикальный shift независимо от area.
-        is_scroll = raw_area > tuning.edit_area_min and _vertical_shift(
-            frames[i - 1], frames[i]) > tuning.scroll_shift_min
+        is_scroll = (
+            raw_area > tuning.edit_area_min
+            and _vertical_shift(frames[i - 1], frames[i]) > tuning.scroll_shift_min
+        )
 
         # Переключение окна — одиночный полноэкранный дифф; проверяем по
         # мгновенной (raw) площади: сглаживание размазало бы его ниже порога.
@@ -76,8 +89,7 @@ def coding_candidates_from_frames(
             if candidates and ts - candidates[-1].ts <= tuning.pair_window_s:
                 candidates[-1].score += 1.0
                 # Кадр вывода после «устаканивания», но не дальше конца режима
-                candidates[-1].pair_ts = min(
-                    ts + tuning.pair_settle_s, regime.end_s - 1.0 / fps)
+                candidates[-1].pair_ts = min(ts + tuning.pair_settle_s, regime.end_s - 1.0 / fps)
             edit_accum = 0.0
             quiet_run = 0.0
             burst_done = False
@@ -94,8 +106,7 @@ def coding_candidates_from_frames(
             if burst_done and quiet_run >= quiet_frames_needed:
                 cand_ts = ts - quiet_run / fps  # начало тишины = точка остановки
                 score = 1.0 + _oracle_boost(cand_ts, srt_blocks, tuning)
-                candidates.append(Candidate(ts=cand_ts, kind="code",
-                                            regime=regime, score=score))
+                candidates.append(Candidate(ts=cand_ts, kind="code", regime=regime, score=score))
                 burst_done = False
                 edit_accum = 0.0
     _ = last_switch_ts

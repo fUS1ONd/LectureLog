@@ -3,6 +3,7 @@
 v1 — правила по сигнатурам, без change-point detection: окна window_s без
 перекрытия классифицируются независимо, соседние окна одного типа сливаются,
 коротыши (< min_regime_s) поглощаются более длинным соседом."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -40,8 +41,9 @@ def segment_regimes(track: SignalTrack, tuning: FramesTuning) -> list[Regime]:
     for start in range(0, n, win):
         sl = slice(start, min(start + win, n))
         labels.append(
-            _classify_window(track.mad[sl], track.motion_frac[sl],
-                             track.edge[sl], track.shift[sl], tuning)
+            _classify_window(
+                track.mad[sl], track.motion_frac[sl], track.edge[sl], track.shift[sl], tuning
+            )
         )
 
     # Склейка соседних окон одного типа в режимы
@@ -63,8 +65,7 @@ def segment_regimes(track: SignalTrack, tuning: FramesTuning) -> list[Regime]:
                 continue
             left = regimes[i - 1] if i > 0 else None
             right = regimes[i + 1] if i + 1 < len(regimes) else None
-            host = max((x for x in (left, right) if x is not None),
-                       key=lambda x: x.duration_s)
+            host = max((x for x in (left, right) if x is not None), key=lambda x: x.duration_s)
             if host is left:
                 left.end_s = r.end_s
             else:

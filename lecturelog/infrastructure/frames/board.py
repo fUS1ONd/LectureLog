@@ -2,6 +2,7 @@
 
 Ключевое: все метрики считаются ПО МОДЕЛИ, а не по сырым кадрам — вставший
 перед доской препод иначе выглядит как стирание."""
+
 from __future__ import annotations
 
 import math
@@ -47,8 +48,7 @@ def ink_mask(model: np.ndarray, board_kind: str, delta: int, open_px: int = 0) -
     blur = cv2.GaussianBlur(model, (0, 0), sigmaX=15)
     norm = cv2.divide(model.astype(np.float32), np.maximum(blur, 1).astype(np.float32))
     # Полярность: мел — светлое на тёмном, маркер — тёмное на светлом
-    mask = (norm > 1.0 + delta / 128.0 if board_kind == "chalk"
-            else norm < 1.0 - delta / 128.0)
+    mask = norm > 1.0 + delta / 128.0 if board_kind == "chalk" else norm < 1.0 - delta / 128.0
     if open_px > 1:
         kernel = np.ones((open_px, open_px), np.uint8)
         mask = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_OPEN, kernel).astype(bool)
@@ -95,8 +95,11 @@ def board_candidates(
 
     def emit(ts: float, snap: np.ndarray, ink: np.ndarray, score: float) -> None:
         nonlocal last_shot_ink
-        candidates.append(Candidate(ts=ts, kind="board", source="board_model",
-                                    score=score, regime=regime, image=snap))
+        candidates.append(
+            Candidate(
+                ts=ts, kind="board", source="board_model", score=score, regime=regime, image=snap
+            )
+        )
         last_shot_ink = ink
 
     for i in range(i0 + 1, i1):
@@ -105,8 +108,11 @@ def board_candidates(
         if tuning.motion_dilate_extra > 0:
             # Расширенная маска движения: гасит пиксели текстуры препода,
             # случайно совпавшие кадр-к-кадру, — они не «замирают» в модели
-            motion = cv2.dilate(motion.astype(np.uint8), np.ones((3, 3), np.uint8),
-                                iterations=tuning.motion_dilate_extra).astype(bool)
+            motion = cv2.dilate(
+                motion.astype(np.uint8),
+                np.ones((3, 3), np.uint8),
+                iterations=tuning.motion_dilate_extra,
+            ).astype(bool)
         m = model.update(cur, motion)
         prev = cur
         shift_run = shift_run + 1 if track.shift[i] > tuning.board_shift_reset else 0
@@ -127,9 +133,12 @@ def board_candidates(
         ts = i / track.fps
 
         # Стирание: резкое падение против максимума недавнего окна
-        win = ink_hist[-(erase_frames + 1):]
-        if (len(win) > erase_frames and max(win) > tuning.min_ink_px
-                and count < max(win) * (1 - tuning.erase_drop_frac)):
+        win = ink_hist[-(erase_frames + 1) :]
+        if (
+            len(win) > erase_frames
+            and max(win) > tuning.min_ink_px
+            and count < max(win) * (1 - tuning.erase_drop_frac)
+        ):
             if last_stable is not None and _is_novel(last_stable[2], last_shot_ink, tuning):
                 emit(last_stable[0], last_stable[1], last_stable[2], score=1.2)
             ink_hist.clear()
@@ -138,8 +147,7 @@ def board_candidates(
             continue
 
         # Стабильность: |Δink| в пределах эпсилона
-        eps = max(tuning.ink_stable_eps_min,
-                  int(tuning.ink_stable_eps_frac * max(count, 1)))
+        eps = max(tuning.ink_stable_eps_min, int(tuning.ink_stable_eps_frac * max(count, 1)))
         if len(ink_hist) >= 2 and abs(ink_hist[-1] - ink_hist[-2]) <= eps:
             stable_run += 1
         else:

@@ -6,10 +6,8 @@ from tests.support.synthetic_video import board_frames
 
 
 def test_model_reconstructs_board_without_teacher():
-    frames = board_frames(write_secs=40, erase_at=None, total_secs=60,
-                          with_teacher=True, seed=1)
-    clean = board_frames(write_secs=40, erase_at=None, total_secs=60,
-                         with_teacher=False, seed=1)
+    frames = board_frames(write_secs=40, erase_at=None, total_secs=60, with_teacher=True, seed=1)
+    clean = board_frames(write_secs=40, erase_at=None, total_secs=60, with_teacher=False, seed=1)
     model = BackgroundModel(frames[0], gate_k=5)
     for prev, cur in zip(frames, frames[1:], strict=False):
         m = model.update(cur, motion_mask(prev, cur))
