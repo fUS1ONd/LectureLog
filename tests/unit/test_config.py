@@ -86,6 +86,24 @@ def test_s3_config_reads_env(monkeypatch):
     assert cfg.s3.public_endpoint is None  # опционален
 
 
+def test_frames_config_defaults(monkeypatch):
+    # По умолчанию стадия кадров включена, модели VLM — fallback-список с flash-lite первым.
+    monkeypatch.delenv("FRAMES_ENABLED", raising=False)
+    monkeypatch.delenv("LLM_MODELS_VIDEO_SLIDES", raising=False)
+    for k, v in _env().items():
+        monkeypatch.setenv(k, v)
+    cfg = AppConfig()
+    assert cfg.frames.enabled is True
+    assert cfg.frames.models[0] == "google/gemini-3.1-flash-lite"
+
+
+def test_frames_models_split_into_list(monkeypatch):
+    for k, v in _env(LLM_MODELS_VIDEO_SLIDES="a, b ,c").items():
+        monkeypatch.setenv(k, v)
+    cfg = AppConfig()
+    assert cfg.frames.models == ["a", "b", "c"]
+
+
 def test_s3_public_endpoint_optional(monkeypatch):
     # При заданном S3_PUBLIC_ENDPOINT он читается (presigned наружу включается).
     for k, v in _env(
