@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -59,27 +60,31 @@ def decode_gray(
         "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1",
     ]
     frame_bytes = w * h
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # stderr во временный файл, а не в PIPE: при потоковом чтении stdout
+    # непрочитанный stderr-пайп переполнился бы и заблокировал ffmpeg до EOF
+    # stdout (классический pipe deadlock). Файл не блокирует писателя.
     exhausted = False  # поток дочитан до конца (а не early break потребителя)
-    try:
-        while True:
-            buf = proc.stdout.read(frame_bytes)
-            if len(buf) < frame_bytes:
-                exhausted = True
-                break
-            yield np.frombuffer(buf, dtype=np.uint8).reshape(h, w)
-    finally:
-        proc.stdout.close()
-        stderr_tail = proc.stderr.read()[-500:].decode("utf-8", errors="replace")
-        proc.stderr.close()
-        returncode = proc.wait()
-        # Сбой декода — инфраструктурная ошибка, молча усечённый поток недопустим.
-        # Но бросаем только при нормальном исчерпании: досрочное закрытие
-        # генератора потребителем (GeneratorExit) — не ошибка ffmpeg.
-        if exhausted and returncode != 0:
-            raise RuntimeError(
-                f"ffmpeg декод {video} завершился с кодом {returncode}: {stderr_tail}"
-            )
+    with tempfile.TemporaryFile() as stderr_file:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=stderr_file)
+        try:
+            while True:
+                buf = proc.stdout.read(frame_bytes)
+                if len(buf) < frame_bytes:
+                    exhausted = True
+                    break
+                yield np.frombuffer(buf, dtype=np.uint8).reshape(h, w)
+        finally:
+            proc.stdout.close()
+            returncode = proc.wait()
+            # Сбой декода — инфраструктурная ошибка, молча усечённый поток
+            # недопустим. Но бросаем только при нормальном исчерпании: досрочное
+            # закрытие генератора потребителем (GeneratorExit) — не ошибка ffmpeg.
+            if exhausted and returncode != 0:
+                stderr_file.seek(0)
+                stderr_tail = stderr_file.read()[-500:].decode("utf-8", errors="replace")
+                raise RuntimeError(
+                    f"ffmpeg декод {video} завершился с кодом {returncode}: {stderr_tail}"
+                )
 
 
 def decode_window(video: Path, ts: float, window_s: float, max_fps: int = 10) -> list[np.ndarray]:
