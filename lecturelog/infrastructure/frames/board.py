@@ -4,6 +4,8 @@
 перед доской препод иначе выглядит как стирание."""
 from __future__ import annotations
 
+import math
+
 import cv2
 import numpy as np
 
@@ -76,9 +78,10 @@ def board_candidates(
     ys, xs = _roi_slice(store.get(i0).shape, regime.bbox)
     kind = regime.board_kind if regime.board_kind != "none" else "chalk"
 
-    # Пороги в секундах → в кадры через fps трека (при fps != 1 иначе поедет)
-    stable_frames = max(1, round(tuning.board_stable_s * track.fps))
-    erase_frames = max(1, round(tuning.erase_window_s * track.fps))
+    # Пороги в секундах → в кадры через fps трека; потолок, а не round():
+    # при дробном fps округление вниз занизило бы гарантированный минимум окна
+    stable_frames = max(1, math.ceil(tuning.board_stable_s * track.fps))
+    erase_frames = max(1, math.ceil(tuning.erase_window_s * track.fps))
 
     model = BackgroundModel(store.get(i0), gate_k=tuning.gate_k)
     prev = store.get(i0)

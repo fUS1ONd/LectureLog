@@ -1,3 +1,5 @@
+import numpy as np
+
 from lecturelog.infrastructure.frames.board import board_candidates
 from lecturelog.infrastructure.frames.ffmpeg_io import ThumbStore
 from lecturelog.infrastructure.frames.signals import compute_signals
@@ -70,3 +72,20 @@ def test_fps_independent_thresholds(tmp_path):
     cands = board_candidates(regime, track, store, FramesTuning())
     assert len(cands) == 1
     assert 30 <= cands[0].ts <= 50
+
+
+def test_shift_resets_model_and_recaptures(tmp_path):
+    # Панорама: с 40-й секунды контент уезжает вбок (устойчивый shift > порога
+    # два кадра подряд) → модель сбрасывается, доска в новой позиции снимается
+    # отдельным кандидатом (ink на новых координатах — новизна)
+    frames = board_frames(write_secs=25, erase_at=None, total_secs=70, seed=5)
+    frames = [
+        np.roll(f, 0 if t < 40 else (60 if t == 40 else 120), axis=1)
+        for t, f in enumerate(frames)
+    ]
+    store = ThumbStore(tmp_path / "thumbs")
+    track = compute_signals(iter(frames), fps=1.0, thumbs=store)
+    regime = Regime(0.0, float(len(frames)), "board", board_kind="chalk")
+    cands = board_candidates(regime, track, store, FramesTuning())
+    assert len(cands) == 2
+    assert cands[0].ts < 40 < cands[1].ts
