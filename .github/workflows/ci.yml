@@ -31,6 +31,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Установка ffmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v3
+
       - name: Установка Python
         uses: actions/setup-python@v5
         with:
