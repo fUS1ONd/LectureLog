@@ -1,0 +1,166 @@
+"""Декод видео для стадии кадров: rawvideo-пайп ffmpeg → numpy.
+
+Все функции синхронные (CPU-bound): вызывающий код заворачивает их
+в asyncio.to_thread. Тумбы хранятся JPEG'ами на диске, чтобы политики
+выбирали кадры без ре-декода (дизайн §5.A)."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import tempfile
+from collections.abc import Iterator
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+
+def probe_duration(video: Path) -> float:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(video)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return float(json.loads(out.stdout)["format"]["duration"])
+
+
+def _probe_size(video: Path) -> tuple[int, int]:
+    out = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "json",
+            str(video),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    stream = json.loads(out.stdout)["streams"][0]
+    return int(stream["width"]), int(stream["height"])
+
+
+def _even(x: int) -> int:
+    return x - (x % 2)
+
+
+def _decode_raw(
+    video: Path,
+    fps: float,
+    width: int,
+    pix_fmt: str,
+    channels: int,
+    start_s: float | None = None,
+    end_s: float | None = None,
+) -> Iterator[np.ndarray]:
+    """Общий rawvideo-декод: поток кадров (H, W) или (H, W, C) uint8."""
+    src_w, src_h = _probe_size(video)
+    w = _even(min(width, src_w))
+    h = _even(round(src_h * w / src_w))
+    cmd = ["ffmpeg", "-loglevel", "error"]
+    if start_s is not None:
+        cmd += ["-ss", f"{start_s:.3f}"]
+    cmd += ["-i", str(video)]
+    if end_s is not None:
+        cmd += ["-t", f"{end_s - (start_s or 0.0):.3f}"]
+    cmd += [
+        "-vf",
+        f"fps={fps},scale={w}:{h}",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        pix_fmt,
+        "pipe:1",
+    ]
+    shape = (h, w) if channels == 1 else (h, w, channels)
+    frame_bytes = w * h * channels
+    # stderr во временный файл, а не в PIPE: при потоковом чтении stdout
+    # непрочитанный stderr-пайп переполнился бы и заблокировал ffmpeg до EOF
+    # stdout (классический pipe deadlock). Файл не блокирует писателя.
+    exhausted = False  # поток дочитан до конца (а не early break потребителя)
+    with tempfile.TemporaryFile() as stderr_file:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=stderr_file)
+        try:
+            while True:
+                buf = proc.stdout.read(frame_bytes)
+                if len(buf) < frame_bytes:
+                    exhausted = True
+                    break
+                yield np.frombuffer(buf, dtype=np.uint8).reshape(shape)
+        finally:
+            proc.stdout.close()
+            returncode = proc.wait()
+            # Сбой декода — инфраструктурная ошибка, молча усечённый поток
+            # недопустим. Но бросаем только при нормальном исчерпании: досрочное
+            # закрытие генератора потребителем (GeneratorExit) — не ошибка ffmpeg.
+            if exhausted and returncode != 0:
+                stderr_file.seek(0)
+                stderr_tail = stderr_file.read()[-500:].decode("utf-8", errors="replace")
+                raise RuntimeError(
+                    f"ffmpeg декод {video} завершился с кодом {returncode}: {stderr_tail}"
+                )
+
+
+def decode_gray(
+    video: Path,
+    fps: float,
+    width: int,
+    start_s: float | None = None,
+    end_s: float | None = None,
+) -> Iterator[np.ndarray]:
+    """Прочитать видео (или отрезок) как поток gray-кадров (H, W) uint8."""
+    return _decode_raw(video, fps, width, "gray", 1, start_s=start_s, end_s=end_s)
+
+
+def decode_window(video: Path, ts: float, window_s: float, max_fps: int = 10) -> list[np.ndarray]:
+    """Точечная выемка: full-res gray кадры в окне ±window_s вокруг ts
+    (accurate seek: -ss перед -i у ffmpeg точный с ре-декодом от keyframe)."""
+    start = max(0.0, ts - window_s)
+    src_w, _ = _probe_size(video)
+    return list(decode_gray(video, fps=max_fps, width=src_w, start_s=start, end_s=ts + window_s))
+
+
+def decode_window_bgr(
+    video: Path, ts: float, window_s: float, max_fps: int = 10
+) -> list[np.ndarray]:
+    """То же окно, но в цвете (H, W, 3) BGR — для финального рендера кадров:
+    анализ идёт по яркости, а пользователю кадры отдаются цветными."""
+    start = max(0.0, ts - window_s)
+    src_w, _ = _probe_size(video)
+    return list(
+        _decode_raw(
+            video,
+            fps=max_fps,
+            width=src_w,
+            pix_fmt="bgr24",
+            channels=3,
+            start_s=start,
+            end_s=ts + window_s,
+        )
+    )
+
+
+class ThumbStore:
+    """JPEG-тумбы кадров грубого прохода: политики D перечитывают кадры
+    по индексу без ре-декода видео (~20 КБ × N)."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        root.mkdir(parents=True, exist_ok=True)
+
+    def put(self, idx: int, gray: np.ndarray) -> None:
+        cv2.imwrite(str(self._root / f"{idx:06d}.jpg"), gray, [cv2.IMWRITE_JPEG_QUALITY, 85])
+
+    def get(self, idx: int) -> np.ndarray:
+        img = cv2.imread(str(self._root / f"{idx:06d}.jpg"), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise FileNotFoundError(f"нет тумбы {idx}")
+        return img

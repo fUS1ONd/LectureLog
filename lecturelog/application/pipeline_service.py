@@ -23,6 +23,7 @@ from lecturelog.domain.ports import (
     Exporter,
     MediaCutter,
     MediaIngestor,
+    SlideImage,
     SlideProvider,
     Storage,
     Structurizer,
@@ -32,6 +33,7 @@ from lecturelog.domain.ports import (
 )
 from lecturelog.infrastructure.export.structure import build_structure, result_key
 from lecturelog.infrastructure.export.zip_utils import zip_dir
+from lecturelog.infrastructure.frames.binding import bind_frames_to_sections
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +122,7 @@ class PipelineService:
         source: MediaSource,
         slide_provider: SlideProvider | None,
         work_dir: Path,
-        video_slide_provider_factory: Callable[[Path], SlideProvider] | None = None,
+        video_slide_provider_factory: Callable[[Path, Path], SlideProvider] | None = None,
     ) -> str:
         # Граница S3-вход: если источник — ключ в MinIO, скачиваем его в локальный
         # scratch и нормализуем в обычный локальный Audio/VideoFile-источник.
@@ -160,11 +162,6 @@ class PipelineService:
                     error=None,
                 )
                 local_video = await self._ingestor.ingest(source, output_dir=work_dir / "video_src")
-
-                # Отложенное создание видео-провайдера: документ приоритетнее,
-                # иначе авто-извлечение из только что полученного видеофайла.
-                if slide_provider is None and video_slide_provider_factory is not None:
-                    slide_provider = video_slide_provider_factory(local_video)
 
                 await self._set(
                     task,
@@ -210,13 +207,42 @@ class PipelineService:
             # Инкрементальный персист: transcribe доезжает ДО появления structurize.
             await self._persist_usage(task, acc)
 
-            slide_images: list[Path] = []
+            # Стадия кадров из видео: только когда нет документа (документ приоритетнее)
+            # и источник — видео. Кадры НЕ влияют на структуризацию (дизайн §4):
+            # привязка к секциям — после structurize по таймкодам.
+            video_frames: list[SlideImage] = []
+            if slide_provider is None and video_slide_provider_factory is not None and is_video:
+                acc.set_mode(source="video", slides_origin="video_extracted")
+                await self._set(
+                    task,
+                    stage=PipelineStage.VIDEO_SLIDES,
+                    progress=plan.stage_start(PipelineStage.VIDEO_SLIDES),
+                )
+
+                async def frames_usage(payload: dict):
+                    acc.record_llm("video_slides", payload)
+
+                frames_provider = video_slide_provider_factory(local_video, srt_path)
+                try:
+                    video_frames = await frames_provider.get_slides(
+                        output_dir=work_dir / "frames",
+                        on_usage=frames_usage,
+                    )
+                except Exception as frames_error:  # noqa: BLE001 — стадия кадров
+                    # никогда не роняет задачу (философия no_slides, дизайн §10)
+                    logger.warning(
+                        "Стадия кадров упала для task=%s, конспект без кадров: %s",
+                        task.task_id,
+                        frames_error,
+                    )
+                    video_frames = []
+                await self._persist_usage(task, acc)
+
+            slide_items: list[SlideImage] = []
             if slide_provider is not None:
-                # Извлечение слайдов из видео удалено (фаза 2/3, VideoSlideProvider
-                # больше не существует): единственный источник слайдов — документ,
-                # slides_origin всегда "document". Стадия PipelineStage.VIDEO_SLIDES
-                # и usage-поле video_slides остаются в domain-моделях ради истории
-                # старых задач, но здесь больше не заполняются.
+                # Единственный источник документных слайдов — приложенный документ,
+                # slides_origin — "document". Видео-кадры (см. выше) идут отдельным
+                # путём и объединяются с slide_items только после structurize.
                 acc.set_mode(
                     source="video" if is_video else "audio",
                     slides_origin="document",
@@ -226,7 +252,7 @@ class PipelineService:
                     stage=PipelineStage.SLIDES,
                     progress=plan.stage_start(PipelineStage.SLIDES),
                 )
-                slide_images = await slide_provider.get_slides(
+                slide_items = await slide_provider.get_slides(
                     output_dir=work_dir / "slides",
                     on_usage=None,
                 )
@@ -246,12 +272,17 @@ class PipelineService:
 
             topics = await self._structurizer.structurize(
                 srt_path=srt_path,
-                slide_images=slide_images,
+                slide_images=[s.path for s in slide_items],  # только документ; кадры — мимо
                 output_dir=work_dir / "structurize",
                 on_progress=structurize_progress,
                 on_usage=structurize_usage,
             )
             await self._persist_usage(task, acc)
+
+            if video_frames:
+                # G: привязка кадров к секциям по таймкодам + монотонизация
+                bind_frames_to_sections(video_frames, topics)
+                slide_items = video_frames
 
             sections = [s for t in topics for s in t.sections]
             cutter = cutter_factory(
@@ -271,7 +302,7 @@ class PipelineService:
             export_result = await self._exporter.export(
                 topics=topics,
                 media_fragments=fragments,
-                slide_images=slide_images,
+                slide_images=slide_items,
                 output_dir=work_dir / "export",
                 media_kind=media_kind,
             )

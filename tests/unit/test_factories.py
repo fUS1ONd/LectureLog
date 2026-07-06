@@ -62,7 +62,7 @@ def _s3_config(monkeypatch, public=None):
         monkeypatch.delenv("S3_PUBLIC_ENDPOINT", raising=False)
     else:
         monkeypatch.setenv("S3_PUBLIC_ENDPOINT", public)
-    return S3Config()
+    return S3Config(_env_file=None)
 
 
 def test_storage_factory_builds_s3storage(monkeypatch):

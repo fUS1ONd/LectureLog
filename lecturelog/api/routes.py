@@ -179,11 +179,8 @@ async def create_task(
             await _save_upload(slides, slides_path)
             document_provider = DocumentSlideProvider(slides_path=slides_path)
 
-        # Извлечение слайдов из видео отключено (тихая деградация, см. дизайн фаза 2:
-        # VideoSlideProvider завязан на старый genai-контракт, а конфиг видео-моделей
-        # удалён вместе с переходом на LlmClient/OpenRouter). Видео обрабатывается как
-        # аудио-лекция без слайдов; удаление кода VideoSlideProvider — фаза 3.
-        video_slide_provider_factory = None
+        # Стадия кадров из видео: фабрика создаётся в lifespan (None, если выключена).
+        video_slide_provider_factory = request.app.state.frames_provider_factory
 
         # Три режима слайдов: no_slides гасит оба провайдера; документ приоритетнее
         # видео; отложенный видео-провайдер строит pipeline после ingest.

@@ -5,7 +5,7 @@ import inspect
 import tempfile
 from pathlib import Path
 
-from lecturelog.domain.ports import ProgressCallback, SlideProvider, UsageCallback
+from lecturelog.domain.ports import ProgressCallback, SlideImage, SlideProvider, UsageCallback
 
 
 async def _emit_progress(on_progress: ProgressCallback | None, value: int) -> None:
@@ -87,7 +87,7 @@ class DocumentSlideProvider(SlideProvider):
         output_dir: Path,
         on_progress: ProgressCallback | None = None,
         on_usage: UsageCallback | None = None,
-    ) -> list[Path]:
+    ) -> list[SlideImage]:
         # Документ-провайдер не тратит LLM-токены: on_usage принимается ради
         # единообразия порта, но не используется (стадия document без by_model).
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -102,4 +102,6 @@ class DocumentSlideProvider(SlideProvider):
             raise ValueError(f"Неподдерживаемый формат слайдов: {self._slides_path.suffix}")
 
         await _emit_progress(on_progress, 100)
-        return images
+        # Документные слайды не имеют таймкода — привязка к секциям делается
+        # LLM-матчингом в structurize, а не по времени.
+        return [SlideImage(path=p) for p in images]

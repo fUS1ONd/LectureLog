@@ -58,6 +58,7 @@ def _build_client(repo, tmp_path, storage):
     app.state.storage = storage
     app.state.llm = object()
     app.state.prompts_dir = tmp_path
+    app.state.frames_provider_factory = None
     client = TestClient(app)
     client._worker = worker
     client._storage = storage

@@ -148,6 +148,30 @@ async def test_images_encoded_as_data_urls():
 
 
 @pytest.mark.asyncio
+async def test_images_mime_detected_by_magic_bytes_jpeg():
+    fake = FakeAsyncOpenAI([_resp("ok")])
+    client = LlmClient(fake, ModelCooldown())
+    jpeg_bytes = b"\xff\xd8\xff\xe0restofjpeg"
+    await client.call("q", models=["m1"], images=[jpeg_bytes])
+    kwargs = fake.chat.completions.kwargs_history[0]
+    content = kwargs["messages"][0]["content"]
+    expected_b64 = base64.b64encode(jpeg_bytes).decode()
+    assert content[1]["image_url"]["url"] == f"data:image/jpeg;base64,{expected_b64}"
+
+
+@pytest.mark.asyncio
+async def test_images_mime_detected_by_magic_bytes_png():
+    fake = FakeAsyncOpenAI([_resp("ok")])
+    client = LlmClient(fake, ModelCooldown())
+    png_bytes = b"\x89PNGrestofpng"
+    await client.call("q", models=["m1"], images=[png_bytes])
+    kwargs = fake.chat.completions.kwargs_history[0]
+    content = kwargs["messages"][0]["content"]
+    expected_b64 = base64.b64encode(png_bytes).decode()
+    assert content[1]["image_url"]["url"] == f"data:image/png;base64,{expected_b64}"
+
+
+@pytest.mark.asyncio
 async def test_response_json_sets_response_format():
     fake = FakeAsyncOpenAI([_resp("{}")])
     client = LlmClient(fake, ModelCooldown())
@@ -215,3 +239,33 @@ async def test_non_rate_limit_error_propagates():
     client = LlmClient(FakeAsyncOpenAI([ValueError("boom")]), ModelCooldown())
     with pytest.raises(ValueError):
         await client.call("q", models=["m1"])
+
+
+def _timeout_error() -> openai.APITimeoutError:
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    return openai.APITimeoutError(request=request)
+
+
+@pytest.mark.asyncio
+async def test_network_timeout_retried_without_cooldown(monkeypatch):
+    # Разовый сетевой флап: повтор проходит, cooldown модели не выставляется
+    import lecturelog.infrastructure.llm.llm_client as mod
+
+    monkeypatch.setattr(mod, "_NETWORK_BACKOFF_S", 0.0)
+    cooldown = ModelCooldown()
+    fake = FakeAsyncOpenAI([_timeout_error(), _resp("ок")])
+    client = LlmClient(fake, cooldown)
+    out = await client.call("q", models=["m1"])
+    assert out == "ок"
+    assert fake.chat.completions.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_network_errors_exhaust_retries(monkeypatch):
+    import lecturelog.infrastructure.llm.llm_client as mod
+
+    monkeypatch.setattr(mod, "_NETWORK_BACKOFF_S", 0.0)
+    fake = FakeAsyncOpenAI([_timeout_error() for _ in range(3)])
+    client = LlmClient(fake, ModelCooldown())
+    with pytest.raises(RuntimeError):
+        await client.call("q", models=["m1"], retries=3)

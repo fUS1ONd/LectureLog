@@ -20,9 +20,9 @@ class PipelineJob:
     source: MediaSource
     slide_provider: SlideProvider | None
     work_dir: Path
-    # Отложенный видео-провайдер: для video_url локального файла нет на момент
-    # enqueue, поэтому провайдер строится из пути, который вернёт ingest.
-    video_slide_provider_factory: Callable[[Path], SlideProvider] | None = None
+    # Отложенный видео-провайдер: строится после transcribe из (video_path, srt_path) —
+    # стадии кадров нужен транскрипт (оракул live-coding, легенда QC).
+    video_slide_provider_factory: Callable[[Path, Path], SlideProvider] | None = None
 
 
 class PipelineWorker:

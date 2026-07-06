@@ -8,7 +8,7 @@ from lecturelog.application.progress_plan import ProgressPlan
 from lecturelog.domain.enums import ErrorCode, TaskStatus
 from lecturelog.domain.media_source import AudioSource, S3ObjectSource
 from lecturelog.domain.models import Section, Task, Topic
-from lecturelog.domain.ports import ExportResult
+from lecturelog.domain.ports import ExportResult, SlideImage
 from lecturelog.infrastructure.export.obsidian_exporter import ObsidianExporter
 from tests.support.fake_storage import FakeStorage
 
@@ -395,7 +395,7 @@ async def test_mode_axes_audio_document(tmp_path):
     await service.run(
         task=task,
         source=AudioSource(path=tmp_path / "a.mp3"),
-        slide_provider=FakeDocumentSlideProvider([tmp_path / "s1.png"]),
+        slide_provider=FakeDocumentSlideProvider([SlideImage(path=tmp_path / "s1.png")]),
         work_dir=tmp_path,
     )
     final = await repo.get("u3")

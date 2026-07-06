@@ -49,6 +49,7 @@ def client(tmp_path):
     app.state.storage = storage
     app.state.llm = object()
     app.state.prompts_dir = tmp_path
+    app.state.frames_provider_factory = None
     c = TestClient(app)
     c._repo = repo
     c._worker = worker

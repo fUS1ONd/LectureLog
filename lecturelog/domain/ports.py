@@ -27,6 +27,20 @@ class Transcriber(ABC):
         """Аудио -> путь к SRT-файлу."""
 
 
+@dataclass(frozen=True)
+class SlideImage:
+    """Элемент результата SlideProvider.
+
+    timestamp — секунды от начала видео (None у документных слайдов: у них
+    нет таймкода, привязка к секциям делается LLM-матчингом в structurize).
+    extracted_text — задел под guide-режим (дизайн §12), в конспекте всегда None."""
+
+    path: Path
+    timestamp: float | None = None
+    caption: str | None = None
+    extracted_text: str | None = None
+
+
 class SlideProvider(ABC):
     @abstractmethod
     async def get_slides(
@@ -34,8 +48,8 @@ class SlideProvider(ABC):
         output_dir: Path,
         on_progress: ProgressCallback | None = None,
         on_usage: UsageCallback | None = None,
-    ) -> list[Path]:
-        """Вернуть список путей к PNG слайдов. Реализация знает источник (PDF/PPTX или видео)."""
+    ) -> list[SlideImage]:
+        """Вернуть слайды/кадры. Документы: timestamp=None; видеокадры: timestamp обязателен."""
 
 
 class Structurizer(ABC):
@@ -85,7 +99,7 @@ class Exporter(ABC):
         self,
         topics: list[Topic],
         media_fragments: list[Path],
-        slide_images: list[Path],
+        slide_images: list[SlideImage],
         output_dir: Path,
         media_kind: str,
     ) -> ExportResult:

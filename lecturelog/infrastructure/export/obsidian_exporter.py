@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 
 from lecturelog.domain.models import Topic
-from lecturelog.domain.ports import Exporter, ExportResult
+from lecturelog.domain.ports import Exporter, ExportResult, SlideImage
 
 
 def _slugify(value: str) -> str:
@@ -35,7 +35,7 @@ class ObsidianExporter(Exporter):
         self,
         topics: list[Topic],
         media_fragments: list[Path],
-        slide_images: list[Path],
+        slide_images: list[SlideImage],
         output_dir: Path,
         media_kind: str,
     ) -> ExportResult:
@@ -61,9 +61,11 @@ class ObsidianExporter(Exporter):
             media_targets.append(target)
 
         slide_targets: list[Path] = []
-        for idx, slide in enumerate(slide_images):
-            target = slides_dir / f"slide-{idx + 1:02d}.png"
-            shutil.copy2(slide, target)
+        for idx, item in enumerate(slide_images):
+            # Суффикс сохраняем как есть: документные слайды — JPEG/PNG от
+            # рендера страницы, видеокадры — PNG от извлечения из видео.
+            target = slides_dir / f"slide-{idx + 1:02d}{item.path.suffix}"
+            shutil.copy2(item.path, target)
             slide_targets.append(target)
 
         lines: list[str] = []
@@ -108,7 +110,8 @@ class ObsidianExporter(Exporter):
                     pos = slide_idx - 1
                     if 0 <= pos < len(slide_targets):
                         rel = slide_targets[pos].relative_to(output_root).as_posix()
-                        lines.append(f"![Слайд {slide_idx}]({rel})")
+                        alt = slide_images[pos].caption or f"Слайд {slide_idx}"
+                        lines.append(f"![{alt}]({rel})")
                         lines.append("")
 
                 lines.append(section.content.strip())

@@ -7,7 +7,7 @@ from lecturelog.application.progress_plan import ProgressPlan
 from lecturelog.domain.enums import PipelineStage, TaskStatus
 from lecturelog.domain.media_source import VideoFileSource, VideoUrlSource
 from lecturelog.domain.models import Section, Task, Topic
-from lecturelog.domain.ports import ExportResult
+from lecturelog.domain.ports import ExportResult, SlideImage
 
 
 class InMemoryRepo:
@@ -63,10 +63,12 @@ class FakeTranscriber:
 class FakeStructurizer:
     def __init__(self, topics):
         self._t = topics
+        self.slide_images_arg = None
 
     async def structurize(
         self, srt_path, slide_images, output_dir, on_progress=None, on_usage=None
     ):
+        self.slide_images_arg = slide_images
         if on_usage:
             r = on_usage({"model": "gemini-3", "prompt": 10, "output": 5})
             if r is not None:
@@ -182,3 +184,167 @@ async def test_video_stages_include_ingest_and_extract(tmp_path):
     progress = [p for _, p in repo.stages]
     assert progress == sorted(progress)
     assert progress[-1] == 100
+
+
+class FakeFrameProvider:
+    """Фейковый провайдер кадров: get_slides либо отдаёт кадры, либо кидает."""
+
+    def __init__(self, frames=None, error: Exception | None = None):
+        self._frames = frames or []
+        self._error = error
+        self.usage_called = False
+
+    async def get_slides(self, output_dir, on_usage=None):
+        if on_usage:
+            r = on_usage({"model": "gemini-3-flash", "prompt": 1, "output": 1})
+            if r is not None:
+                await r
+            self.usage_called = True
+        if self._error is not None:
+            raise self._error
+        return self._frames
+
+
+class FakeDocumentSlideProvider:
+    """Фейковый документ-провайдер (старый путь) — фабрика кадров не должна вызываться."""
+
+    def __init__(self, items):
+        self._items = items
+        self.called = False
+
+    async def get_slides(self, output_dir, on_usage=None):
+        self.called = True
+        return self._items
+
+
+@pytest.mark.asyncio
+async def test_video_frames_stage_runs_after_transcribe_and_binds(tmp_path):
+    repo = InMemoryRepo()
+    task = Task(task_id="v3", source_kind="video_file")
+    await repo.create(task)
+    sec = Section(title="s", start="0:00", end="5:00", content="c", slide_indices=[])
+    topics = [Topic(title="T", start="0:00", end="5:00", sections=[sec], slide_indices=[])]
+
+    frame = SlideImage(path=Path("/work/frames/f1.jpg"), timestamp=30.0, caption="Слайд")
+    frames_provider = FakeFrameProvider(frames=[frame])
+
+    factory_calls = []
+
+    def factory(video_path, srt_path):
+        factory_calls.append((video_path, srt_path))
+        return frames_provider
+
+    exporter = FakeExporter()
+    structurizer = FakeStructurizer(topics)
+    service = _service(
+        repo,
+        FakeIngestor(),
+        FakeTranscriber(),
+        structurizer,
+        RecordingCutter("audio"),
+        RecordingCutter("video"),
+        exporter,
+    )
+
+    await service.run(
+        task=task,
+        source=VideoFileSource(path=tmp_path / "v.mp4"),
+        slide_provider=None,
+        work_dir=tmp_path,
+        video_slide_provider_factory=factory,
+    )
+
+    final = await repo.get("v3")
+    assert final.status == TaskStatus.DONE
+    seen = [stage for stage, _ in repo.stages]
+    assert PipelineStage.VIDEO_SLIDES in seen
+    assert len(factory_calls) == 1
+    assert structurizer.slide_images_arg == []
+    assert sec.slide_indices == [1]
+    # exporter получил кадры на входе
+    assert exporter.media_kind == "video"
+    assert final.usage["video_slides"]["by_model"]["gemini-3-flash"]["calls"] == 1
+    # slides_origin проставлен видео-режимом
+    assert final.usage["total"]["slides_origin"] == "video_extracted"
+
+
+@pytest.mark.asyncio
+async def test_video_frames_stage_failure_does_not_fail_task(tmp_path):
+    repo = InMemoryRepo()
+    task = Task(task_id="v4", source_kind="video_file")
+    await repo.create(task)
+    sec = Section(title="s", start="0:00", end="5:00", content="c", slide_indices=[])
+    topics = [Topic(title="T", start="0:00", end="5:00", sections=[sec], slide_indices=[])]
+
+    frames_provider = FakeFrameProvider(error=RuntimeError("vlm недоступен"))
+
+    def factory(video_path, srt_path):
+        return frames_provider
+
+    service = _service(
+        repo,
+        FakeIngestor(),
+        FakeTranscriber(),
+        FakeStructurizer(topics),
+        RecordingCutter("audio"),
+        RecordingCutter("video"),
+        FakeExporter(),
+    )
+
+    await service.run(
+        task=task,
+        source=VideoFileSource(path=tmp_path / "v.mp4"),
+        slide_provider=None,
+        work_dir=tmp_path,
+        video_slide_provider_factory=factory,
+    )
+
+    final = await repo.get("v4")
+    assert final.status == TaskStatus.DONE
+    assert sec.slide_indices == []
+
+
+@pytest.mark.asyncio
+async def test_document_slides_still_win_over_video_frames(tmp_path):
+    repo = InMemoryRepo()
+    task = Task(task_id="v5", source_kind="video_file")
+    await repo.create(task)
+    sec = Section(title="s", start="0:00", end="5:00", content="c", slide_indices=[])
+    topics = [Topic(title="T", start="0:00", end="5:00", sections=[sec], slide_indices=[])]
+
+    doc_item = SlideImage(path=Path("/work/slides/doc1.png"), timestamp=None, caption=None)
+    doc_provider = FakeDocumentSlideProvider(items=[doc_item])
+
+    factory_called = False
+
+    def factory(video_path, srt_path):
+        nonlocal factory_called
+        factory_called = True
+        return FakeFrameProvider(frames=[])
+
+    structurizer = FakeStructurizer(topics)
+    service = _service(
+        repo,
+        FakeIngestor(),
+        FakeTranscriber(),
+        structurizer,
+        RecordingCutter("audio"),
+        RecordingCutter("video"),
+        FakeExporter(),
+    )
+
+    await service.run(
+        task=task,
+        source=VideoFileSource(path=tmp_path / "v.mp4"),
+        slide_provider=doc_provider,
+        work_dir=tmp_path,
+        video_slide_provider_factory=factory,
+    )
+
+    final = await repo.get("v5")
+    assert final.status == TaskStatus.DONE
+    assert doc_provider.called is True
+    assert factory_called is False
+    assert structurizer.slide_images_arg == [doc_item.path]
+    seen = [stage for stage, _ in repo.stages]
+    assert PipelineStage.VIDEO_SLIDES not in seen
