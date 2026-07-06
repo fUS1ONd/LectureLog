@@ -41,10 +41,11 @@ class FramesTuning:
     # D2: live-coding
     code_fps: float = 4.0
     code_width: int = 480
-    edit_area_min: float = 0.0005  # ниже — курсор/шум, не правка
+    edit_smooth_s: float = 1.0    # окно сглаживания diff-сигнала (гасит мигание курсора)
+    edit_area_min: float = 0.00013  # ниже — курсор/шум, не правка (сглаженный сигнал)
     edit_area_max: float = 0.03
     switch_area_min: float = 0.3   # выше — переключение окна
-    edit_burst_s: float = 8.0
+    edit_burst_s: float = 6.0
     stop_quiet_s: float = 4.0
     pair_window_s: float = 15.0
     pair_settle_s: float = 1.0
