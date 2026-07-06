@@ -211,11 +211,7 @@ class PipelineService:
             # и источник — видео. Кадры НЕ влияют на структуризацию (дизайн §4):
             # привязка к секциям — после structurize по таймкодам.
             video_frames: list[SlideImage] = []
-            if (
-                slide_provider is None
-                and video_slide_provider_factory is not None
-                and is_video
-            ):
+            if slide_provider is None and video_slide_provider_factory is not None and is_video:
                 acc.set_mode(source="video", slides_origin="video_extracted")
                 await self._set(
                     task,
@@ -236,7 +232,8 @@ class PipelineService:
                     # никогда не роняет задачу (философия no_slides, дизайн §10)
                     logger.warning(
                         "Стадия кадров упала для task=%s, конспект без кадров: %s",
-                        task.task_id, frames_error,
+                        task.task_id,
+                        frames_error,
                     )
                     video_frames = []
                 await self._persist_usage(task, acc)

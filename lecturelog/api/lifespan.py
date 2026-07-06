@@ -86,8 +86,11 @@ async def lifespan(app: FastAPI):
 
         def frames_factory(video_path: Path, srt_path: Path) -> VideoFrameProvider:
             return VideoFrameProvider(
-                video_path=video_path, srt_path=srt_path,
-                llm=llm, models=cfg.frames.models, effort=cfg.frames.effort,
+                video_path=video_path,
+                srt_path=srt_path,
+                llm=llm,
+                models=cfg.frames.models,
+                effort=cfg.frames.effort,
             )
 
     app.state.frames_provider_factory = frames_factory
