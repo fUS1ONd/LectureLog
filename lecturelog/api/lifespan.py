@@ -14,6 +14,7 @@ from lecturelog.application.progress_plan import ProgressPlan
 from lecturelog.application.worker import PipelineWorker
 from lecturelog.config.settings import get_config
 from lecturelog.infrastructure.export.obsidian_exporter import ObsidianExporter
+from lecturelog.infrastructure.frames.provider import VideoFrameProvider
 from lecturelog.infrastructure.llm.llm_client import LlmClient
 from lecturelog.infrastructure.llm.model_cooldown import ModelCooldown
 from lecturelog.infrastructure.media.audio_cutter import FfmpegAudioCutter
@@ -77,6 +78,19 @@ async def lifespan(app: FastAPI):
         logger.info("S3 presigned включён (public endpoint задан)")
     else:
         logger.info("S3 presigned выключен: /uploads и /result-url отдадут 409, работает стрим")
+
+    # Фабрика провайдера кадров из видео: (video_path, srt_path) -> SlideProvider.
+    # None при FRAMES_ENABLED=false — тогда видео идёт как аудио-лекция без кадров.
+    frames_factory = None
+    if cfg.frames.enabled:
+
+        def frames_factory(video_path: Path, srt_path: Path) -> VideoFrameProvider:
+            return VideoFrameProvider(
+                video_path=video_path, srt_path=srt_path,
+                llm=llm, models=cfg.frames.models, effort=cfg.frames.effort,
+            )
+
+    app.state.frames_provider_factory = frames_factory
 
     service = PipelineService(
         repository=repo,
