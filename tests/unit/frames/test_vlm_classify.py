@@ -23,7 +23,7 @@ class FakeLlm:
         effort=None,
         retries=5,
     ):
-        self.calls.append({"prompt": prompt, "images": images})
+        self.calls.append({"prompt": prompt, "models": models, "effort": effort, "images": images})
         if on_usage is not None:
             # on_usage может быть как sync, так и async (см. UsageCallback) —
             # await допустим только для awaitable-результата.

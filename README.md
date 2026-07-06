@@ -52,6 +52,9 @@ HTTP-сервис обработки лекций: на вход — лекци�
   сам VLM, но при отказе LLM) стадия деградирует: классификация кадров идёт по
   временным сигнатурам без LLM-подтверждения, финальный QC пропускается — итоговый
   набор кадров чуть менее вычищен, но стадия всё равно отрабатывает.
+- Классификация режимов и финальный QC настраиваются отдельно: 1–2 вызова
+  классификатора можно отправлять на более тяжёлую модель, а массовый QC оставить
+  на дешёвом списке.
 - Расход VLM минимальный: ориентировочно $0.01–0.015 за 1.5-часовую лекцию по платному
   прайсу `gemini-3.1-flash-lite`; на бесплатных BYOK-ключах — бесплатно.
 
@@ -82,7 +85,7 @@ Obsidian (Settings → Community plugins), иначе вместо плеера 
 
 ```bash
 cp .env.example .env
-# Заполните GROQ_API_KEYS, GEMINI_API_KEYS, CORE_POSTGRES_PASSWORD,
+# Заполните GROQ_API_KEYS, OPENROUTER_API_KEY, CORE_POSTGRES_PASSWORD,
 # S3_ACCESS_KEY и S3_SECRET_KEY.
 docker compose up --build
 ```
@@ -138,7 +141,7 @@ chmod +x minio-init.sh
 docker network create lecturelog-shared || true
 ```
 
-Отредактируйте `.env`: задайте `GROQ_API_KEYS`, `GEMINI_API_KEYS`,
+Отредактируйте `.env`: задайте `GROQ_API_KEYS`, `OPENROUTER_API_KEY`,
 `CORE_POSTGRES_PASSWORD`, `S3_SECRET_KEY`, публичный `S3_PUBLIC_ENDPOINT` и общий
 с web `LECTURELOG_WEBHOOK_SECRET`. Для связки с web укажите:
 
@@ -325,12 +328,16 @@ python scripts/submit_task.py --base http://my-host:8000/api/v1 status <task_id>
 | Переменная             | Назначение                                                |
 | ---------------------- | --------------------------------------------------------- |
 | `GROQ_API_KEYS`        | Ключи Groq (через запятую), для транскрибации (см. раздел про лимиты бесплатных тиров). |
-| `GEMINI_API_KEYS`      | Ключи Gemini (через запятую), для структуризации (см. раздел про лимиты бесплатных тиров). |
-| `GEMINI_MODELS_*`      | Приоритетные списки моделей по этапам (fallback при 429). |
-| `GEMINI_CONCURRENCY_*` | Параллельность вызовов Gemini по этапам.                  |
+| `OPENROUTER_API_KEY`   | Ключ OpenRouter; LLM-вызовы идут через BYOK Google AI Studio. |
+| `OPENROUTER_BASE_URL`  | Base URL OpenRouter (по умолчанию `https://openrouter.ai/api/v1`). |
+| `LLM_MODELS_*`         | Приоритетные списки моделей по этапам структуризации (fallback при 429). |
+| `LLM_CONCURRENCY_*`    | Параллельность вызовов LLM по этапам.                     |
+| `LLM_EFFORT_*`         | Reasoning effort по этапам структуризации (по умолчанию `low`). |
 | `FRAMES_ENABLED`       | Вкл./выкл. стадии отбора кадров из видео (`video_slides`). По умолчанию `true`. |
-| `LLM_MODELS_VIDEO_SLIDES` | Приоритетный список VLM-моделей для классификации/QC кадров (fallback при 429). |
-| `LLM_EFFORT_VIDEO_SLIDES` | Reasoning effort для VLM-вызовов стадии кадров (по умолчанию `low`). |
+| `LLM_MODELS_VIDEO_SLIDES` | Приоритетный список VLM-моделей для QC кадров (fallback при 429). |
+| `LLM_EFFORT_VIDEO_SLIDES` | Reasoning effort для QC кадров (по умолчанию `low`). |
+| `LLM_MODELS_FRAMES_CLASSIFY` | Приоритетный список VLM-моделей для классификации режимов видео. |
+| `LLM_EFFORT_FRAMES_CLASSIFY` | Reasoning effort для классификации режимов (по умолчанию `medium`). |
 | `DATABASE_URL`         | Async-URL Postgres (`postgresql+asyncpg://...`).          |
 | `S3_INTERNAL_ENDPOINT` | Endpoint MinIO для движка внутри docker-сети (напр. `http://minio:9000`). |
 | `S3_PUBLIC_ENDPOINT`   | Опц. публичный хост для presigned-ссылок наружу. Не задан → presigned не выдаётся (`/uploads` и `/result-url` отдают 409), работает только стрим. |
@@ -345,15 +352,15 @@ python scripts/submit_task.py --base http://my-host:8000/api/v1 status <task_id>
 
 ## Ключи API и лимиты бесплатных тиров
 
-Сервис рассчитан на работу на **бесплатных тарифах** Groq и Gemini. Чтобы обходить
-жёсткие лимиты free tier, он умеет жонглировать несколькими API-ключами: ключи
-перечисляются через запятую в `GROQ_API_KEYS` / `GEMINI_API_KEYS`, и пул автоматически
-балансирует нагрузку между ними, помечая «перегретые» ключи и переключаясь на свободные.
+Сервис рассчитан на работу на **бесплатных тарифах** Groq и Google AI Studio через
+OpenRouter BYOK. Для Groq можно указывать несколько ключей через запятую в
+`GROQ_API_KEYS`; LLM-вызовы используют один `OPENROUTER_API_KEY`, а fallback идёт
+по приоритетному списку моделей.
 
 Получить бесплатные ключи:
 
 - Groq — [console.groq.com/keys](https://console.groq.com/keys)
-- Gemini — [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+- Google AI Studio key для OpenRouter BYOK — [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
 ### Groq (транскрибация, Whisper large-v3)
 
@@ -364,28 +371,26 @@ python scripts/submit_task.py --base http://my-host:8000/api/v1 status <task_id>
   освобождения ближайшего ключа.
 - Чем больше ключей — тем выше суммарная пропускная способность транскрибации.
 
-### Gemini (структуризация)
+### LLM через OpenRouter BYOK (структуризация и VLM)
 
-Балансировка идёт не просто по ключам, а по парам **«ключ × модель»**. Для каждой пары
-учитываются два лимита бесплатного тира: **RPM** (запросов в минуту) и **RPD** (запросов
-в сутки). Суточный счётчик сбрасывается в полночь по тихоокеанскому времени
-(`America/Los_Angeles`) — именно так считает квоты сам Google.
+OpenRouter вызывается в режиме BYOK с провайдером `google-ai-studio`, без fallback на
+чужие провайдеры. Для каждой стадии задаётся приоритетный список моделей; при `429`
+конкретная модель временно ставится на cooldown, после чего клиент пробует следующую
+модель из списка.
 
 Известные лимиты free tier на **один** ключ:
 
 | Модель                    | RPM | RPD |
 | ------------------------- | --- | --- |
-| `gemini-3.5-flash`        | 5   | 20  |
-| `gemini-3-flash-preview`  | 5   | 20  |
-| `gemini-3.1-flash-lite`   | 15  | 500 |
+| `google/gemini-3.5-flash`       | 5   | 20  |
+| `google/gemini-3-flash-preview` | 5   | 20  |
+| `google/gemini-3.1-flash-lite`  | 15  | 500 |
 
-- Модели для каждого этапа задаются приоритетным списком (`GEMINI_MODELS_*`). При
-  исчерпании лимита или ответе `429` пул пробует следующую модель/ключ из списка — это и
-  есть fallback.
-- При ответе `429`/`503` конкретная пара «ключ × модель» помечается перегретой и временно
-  блокируется; пул выбирает следующую доступную пару.
-- Несколько ключей кратно увеличивают суммарный суточный бюджет запросов (RPD складывается
-  по ключам), что критично на бесплатном тарифе.
+- Модели для каждого этапа задаются приоритетным списком (`LLM_MODELS_*`).
+- Для `video_slides` есть два списка: `LLM_MODELS_FRAMES_CLASSIFY` для дешёвых по
+  количеству, но критичных решений классификатора и `LLM_MODELS_VIDEO_SLIDES` для QC.
+- Несколько Google AI Studio ключей сейчас не ротируются в core; для увеличения RPD
+  нужно выпускать отдельный OpenRouter key/конфигурацию на окружение.
 
 ## Тесты
 

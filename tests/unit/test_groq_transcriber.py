@@ -8,6 +8,11 @@ from lecturelog.infrastructure.transcribe.groq_transcriber import (
 )
 
 
+def _clear_proxy_env(monkeypatch):
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_build_srt_groups_words_into_captions():
     words = [{"word": f"w{i}", "start": float(i), "end": float(i) + 0.5} for i in range(8)]
     srt = _build_srt_from_words(words, words_per_caption=7)
@@ -85,6 +90,7 @@ async def test_probe_returns_zero_on_nonzero_returncode(monkeypatch):
 async def test_transcribe_emits_audio_seconds_usage(tmp_path, monkeypatch):
     from lecturelog.infrastructure.transcribe import groq_transcriber as mod
 
+    _clear_proxy_env(monkeypatch)
     audio = tmp_path / "a.mp3"
     audio.write_bytes(b"x")
 
@@ -117,6 +123,7 @@ async def test_transcribe_continues_when_probe_returns_zero(tmp_path, monkeypatc
     # транскрибация не падает, а эмитит usage с audio_seconds=0.
     from lecturelog.infrastructure.transcribe import groq_transcriber as mod
 
+    _clear_proxy_env(monkeypatch)
     audio = tmp_path / "a.mp3"
     audio.write_bytes(b"x")
 

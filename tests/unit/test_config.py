@@ -3,6 +3,13 @@ import pytest
 from lecturelog.config.settings import AppConfig
 
 
+@pytest.fixture(autouse=True)
+def _ignore_project_env_file(monkeypatch, tmp_path):
+    # BaseSettings читает .env из текущего каталога; в тестах конфиг задаётся
+    # только через monkeypatch, чтобы реальные секреты/локальные настройки не влияли.
+    monkeypatch.chdir(tmp_path)
+
+
 def _env(**overrides):
     base = {
         "GROQ_API_KEYS": "g1,g2",
@@ -90,11 +97,16 @@ def test_frames_config_defaults(monkeypatch):
     # По умолчанию стадия кадров включена, модели VLM — fallback-список с flash-lite первым.
     monkeypatch.delenv("FRAMES_ENABLED", raising=False)
     monkeypatch.delenv("LLM_MODELS_VIDEO_SLIDES", raising=False)
+    monkeypatch.delenv("LLM_MODELS_FRAMES_CLASSIFY", raising=False)
+    monkeypatch.delenv("LLM_EFFORT_FRAMES_CLASSIFY", raising=False)
     for k, v in _env().items():
         monkeypatch.setenv(k, v)
     cfg = AppConfig()
     assert cfg.frames.enabled is True
     assert cfg.frames.models[0] == "google/gemini-3.1-flash-lite"
+    # Классификация режимов — на тяжёлой модели с бóльшим effort (1-2 вызова)
+    assert cfg.frames.classify_models[0] == "google/gemini-3.5-flash"
+    assert cfg.frames.classify_effort == "medium"
 
 
 def test_frames_models_split_into_list(monkeypatch):
@@ -102,6 +114,17 @@ def test_frames_models_split_into_list(monkeypatch):
         monkeypatch.setenv(k, v)
     cfg = AppConfig()
     assert cfg.frames.models == ["a", "b", "c"]
+
+
+def test_frames_classify_models_split_into_list(monkeypatch):
+    for k, v in _env(
+        LLM_MODELS_FRAMES_CLASSIFY="classify-a, classify-b ,classify-c",
+        LLM_EFFORT_FRAMES_CLASSIFY="high",
+    ).items():
+        monkeypatch.setenv(k, v)
+    cfg = AppConfig()
+    assert cfg.frames.classify_models == ["classify-a", "classify-b", "classify-c"]
+    assert cfg.frames.classify_effort == "high"
 
 
 def test_s3_public_endpoint_optional(monkeypatch):

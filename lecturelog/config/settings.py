@@ -69,10 +69,22 @@ class FramesConfig(BaseSettings):
         alias="LLM_MODELS_VIDEO_SLIDES",
     )
     effort: str = Field("low", alias="LLM_EFFORT_VIDEO_SLIDES")
+    # Классификация режимов — 1-2 вызова на лекцию, но её решения (тип, bbox,
+    # board_kind) самые нагруженные: тяжёлая модель + medium почти бесплатны
+    # и снижают недетерминизм. QC остаётся на дешёвом списке выше.
+    classify_models_raw: str = Field(
+        "google/gemini-3.5-flash,google/gemini-3.1-flash-lite,google/gemini-3-flash-preview",
+        alias="LLM_MODELS_FRAMES_CLASSIFY",
+    )
+    classify_effort: str = Field("medium", alias="LLM_EFFORT_FRAMES_CLASSIFY")
 
     @property
     def models(self) -> list[str]:
         return _split_csv(self.models_raw)
+
+    @property
+    def classify_models(self) -> list[str]:
+        return _split_csv(self.classify_models_raw)
 
 
 class DatabaseConfig(BaseSettings):

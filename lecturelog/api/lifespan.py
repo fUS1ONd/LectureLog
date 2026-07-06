@@ -91,6 +91,8 @@ async def lifespan(app: FastAPI):
                 llm=llm,
                 models=cfg.frames.models,
                 effort=cfg.frames.effort,
+                classify_models=cfg.frames.classify_models,
+                classify_effort=cfg.frames.classify_effort,
             )
 
     app.state.frames_provider_factory = frames_factory

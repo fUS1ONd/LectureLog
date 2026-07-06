@@ -54,6 +54,8 @@ class VideoFrameProvider(SlideProvider):
         llm,
         models: list[str],
         effort: str,
+        classify_models: list[str] | None = None,
+        classify_effort: str | None = None,
         tuning: FramesTuning | None = None,
         prompts_dir: Path = Path("prompts"),
     ) -> None:
@@ -62,6 +64,9 @@ class VideoFrameProvider(SlideProvider):
         self._llm = llm
         self._models = models
         self._effort = effort
+        # Классификация может идти на более тяжёлой модели, чем QC (1-2 вызова)
+        self._classify_models = classify_models or models
+        self._classify_effort = classify_effort or effort
         self._tuning = tuning or FramesTuning()
         self._prompts_dir = prompts_dir
 
@@ -93,8 +98,8 @@ class VideoFrameProvider(SlideProvider):
             reps, micro = self._representatives(regimes, track, store)
             regimes = await vlm.classify_regimes(
                 self._llm,
-                self._models,
-                self._effort,
+                self._classify_models,
+                self._classify_effort,
                 regimes,
                 reps,
                 micro,

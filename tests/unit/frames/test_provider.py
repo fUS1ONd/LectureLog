@@ -51,8 +51,10 @@ async def test_end_to_end_slides_lecture(tmp_path):
         video_path=_video(tmp_path),
         srt_path=_srt(tmp_path),
         llm=llm,
-        models=["m"],
+        models=["qc-model"],
         effort="low",
+        classify_models=["classify-model"],
+        classify_effort="medium",
         tuning=FramesTuning(),
     )
     usage_events = []
@@ -62,6 +64,10 @@ async def test_end_to_end_slides_lecture(tmp_path):
     assert all(i.caption for i in items)  # подписи из QC
     assert items == sorted(items, key=lambda i: i.timestamp)
     assert len(usage_events) == 2  # classify + qc
+    assert llm.calls[0]["models"] == ["classify-model"]
+    assert llm.calls[0]["effort"] == "medium"
+    assert llm.calls[1]["models"] == ["qc-model"]
+    assert llm.calls[1]["effort"] == "low"
 
 
 async def test_vlm_down_degrades_to_signatures(tmp_path):

@@ -13,8 +13,10 @@
     <кадры>.jpg         — финальные кадры стадии E (+ QC F, если включён VLM)
 
 Без --no-vlm LlmClient собирается из окружения (OPENROUTER_API_KEY/
-OPENROUTER_BASE_URL, LLM_MODELS_VIDEO_SLIDES, LLM_EFFORT_VIDEO_SLIDES) —
-те же переменные, что использует прод (lecturelog.config.settings.FramesConfig).
+OPENROUTER_BASE_URL). QC кадров берёт LLM_MODELS_VIDEO_SLIDES/
+LLM_EFFORT_VIDEO_SLIDES, классификация режимов — LLM_MODELS_FRAMES_CLASSIFY/
+LLM_EFFORT_FRAMES_CLASSIFY; это те же переменные, что использует прод
+(lecturelog.config.settings.FramesConfig).
 С --no-vlm стадии C/F пропускаются — чистый CV-прогон без сети и без токенов."""
 
 from __future__ import annotations
@@ -111,7 +113,16 @@ def _collect_candidates(
     return sorted(out, key=lambda c: c.ts)
 
 
-def _build_llm(models_arg: str | None, effort_arg: str | None):
+def _split_models_arg(raw: str) -> list[str]:
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _build_llm(
+    models_arg: str | None,
+    effort_arg: str | None,
+    classify_models_arg: str | None,
+    classify_effort_arg: str | None,
+):
     """LlmClient из окружения (см. FramesConfig) — так же, как в lifespan.py."""
     from openai import AsyncOpenAI
 
@@ -122,9 +133,18 @@ def _build_llm(models_arg: str | None, effort_arg: str | None):
     cfg = get_config()
     openai_client = AsyncOpenAI(base_url=cfg.llm.base_url, api_key=cfg.llm.openrouter_key)
     llm = LlmClient(openai_client, ModelCooldown())
-    models = models_arg.split(",") if models_arg else cfg.frames.models
+    models = _split_models_arg(models_arg) if models_arg else cfg.frames.models
     effort = effort_arg or cfg.frames.effort
-    return llm, models, effort
+    # Классификация — на своём (более тяжёлом) конфиге, если не переопределено флагами.
+    # Общие --models/--effort намеренно переопределяют обе VLM-стадии для быстрых A/B-прогонов.
+    if classify_models_arg:
+        classify_models = _split_models_arg(classify_models_arg)
+    elif models_arg:
+        classify_models = models
+    else:
+        classify_models = cfg.frames.classify_models
+    classify_effort = classify_effort_arg or effort_arg or cfg.frames.classify_effort
+    return llm, models, effort, classify_models, classify_effort
 
 
 async def run(args: argparse.Namespace) -> None:
@@ -157,16 +177,21 @@ async def run(args: argparse.Namespace) -> None:
     with timer.track("B_segmentation"):
         regimes = segment_regimes(track, tuning)
 
-    llm = models = effort = None
+    llm = models = effort = classify_models = classify_effort = None
     if not args.no_vlm:
-        llm, models, effort = _build_llm(args.models, args.effort)
+        llm, models, effort, classify_models, classify_effort = _build_llm(
+            args.models,
+            args.effort,
+            args.classify_models,
+            args.classify_effort,
+        )
 
         # C: VLM-классификация режимов
         from lecturelog.infrastructure.frames import vlm
 
         with timer.track("C_vlm_classify"):
             reps, micro = VideoFrameProvider._representatives(
-                VideoFrameProvider(video, srt, llm, models, effort, tuning),
+                VideoFrameProvider(video, srt, llm, models, effort, tuning=tuning),
                 regimes,
                 track,
                 store,
@@ -174,8 +199,8 @@ async def run(args: argparse.Namespace) -> None:
             try:
                 regimes = await vlm.classify_regimes(
                     llm,
-                    models,
-                    effort,
+                    classify_models,
+                    classify_effort,
                     regimes,
                     reps,
                     micro,
@@ -301,12 +326,33 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--models",
         default=None,
-        help="список моделей VLM через запятую (по умолчанию — env LLM_MODELS_VIDEO_SLIDES)",
+        help=(
+            "список моделей VLM/QC через запятую; без --classify-models также "
+            "переопределяет классификацию"
+        ),
     )
     parser.add_argument(
         "--effort",
         default=None,
-        help="reasoning effort для VLM-вызовов (по умолчанию — LLM_EFFORT_VIDEO_SLIDES)",
+        help=(
+            "reasoning effort для VLM/QC; без --classify-effort также переопределяет классификацию"
+        ),
+    )
+    parser.add_argument(
+        "--classify-models",
+        default=None,
+        help=(
+            "список моделей для классификации режимов через запятую "
+            "(по умолчанию — env LLM_MODELS_FRAMES_CLASSIFY)"
+        ),
+    )
+    parser.add_argument(
+        "--classify-effort",
+        default=None,
+        help=(
+            "reasoning effort для классификации режимов "
+            "(по умолчанию — env LLM_EFFORT_FRAMES_CLASSIFY)"
+        ),
     )
     return parser.parse_args(argv)
 
