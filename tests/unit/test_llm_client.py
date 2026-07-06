@@ -148,6 +148,30 @@ async def test_images_encoded_as_data_urls():
 
 
 @pytest.mark.asyncio
+async def test_images_mime_detected_by_magic_bytes_jpeg():
+    fake = FakeAsyncOpenAI([_resp("ok")])
+    client = LlmClient(fake, ModelCooldown())
+    jpeg_bytes = b"\xff\xd8\xff\xe0restofjpeg"
+    await client.call("q", models=["m1"], images=[jpeg_bytes])
+    kwargs = fake.chat.completions.kwargs_history[0]
+    content = kwargs["messages"][0]["content"]
+    expected_b64 = base64.b64encode(jpeg_bytes).decode()
+    assert content[1]["image_url"]["url"] == f"data:image/jpeg;base64,{expected_b64}"
+
+
+@pytest.mark.asyncio
+async def test_images_mime_detected_by_magic_bytes_png():
+    fake = FakeAsyncOpenAI([_resp("ok")])
+    client = LlmClient(fake, ModelCooldown())
+    png_bytes = b"\x89PNGrestofpng"
+    await client.call("q", models=["m1"], images=[png_bytes])
+    kwargs = fake.chat.completions.kwargs_history[0]
+    content = kwargs["messages"][0]["content"]
+    expected_b64 = base64.b64encode(png_bytes).decode()
+    assert content[1]["image_url"]["url"] == f"data:image/png;base64,{expected_b64}"
+
+
+@pytest.mark.asyncio
 async def test_response_json_sets_response_format():
     fake = FakeAsyncOpenAI([_resp("{}")])
     client = LlmClient(fake, ModelCooldown())

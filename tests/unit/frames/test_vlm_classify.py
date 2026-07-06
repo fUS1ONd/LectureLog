@@ -45,23 +45,52 @@ def _thumb():
     return np.full((90, 160), 128, dtype=np.uint8)
 
 
-async def test_classify_applies_vlm_verdicts_and_bbox():
+async def test_classify_accepts_bare_json_array_for_robustness():
+    # Устойчивость: если модель всё же вернула голый массив (в обход обёртки
+    # {"results": [...]}), парсер тоже должен его принять.
     resp = json.dumps(
         [
-            {
-                "idx": 1,
-                "type": "slides",
-                "content_bbox": [0.1, 0.1, 0.8, 0.8],
-                "board_kind": "none",
-            },
-            {
-                "idx": 2,
-                "type": "board",
-                "content_bbox": [0.0, 0.0, 1.0, 0.9],
-                "board_kind": "chalk",
-            },
-            {"idx": 3, "type": "code", "content_bbox": [0.05, 0.0, 0.9, 1.0], "board_kind": "none"},
+            {"idx": 1, "type": "board", "content_bbox": None, "board_kind": "chalk"},
         ]
+    )
+    out = await classify_regimes(
+        FakeLlm([resp]),
+        ["m"],
+        "low",
+        [Regime(0, 60, "slides")],
+        [_thumb()],
+        micro_rate=[0.0],
+        tuning=FramesTuning(),
+        on_usage=None,
+    )
+    assert out[0].kind == "board"
+    assert out[0].board_kind == "chalk"
+
+
+async def test_classify_applies_vlm_verdicts_and_bbox():
+    resp = json.dumps(
+        {
+            "results": [
+                {
+                    "idx": 1,
+                    "type": "slides",
+                    "content_bbox": [0.1, 0.1, 0.8, 0.8],
+                    "board_kind": "none",
+                },
+                {
+                    "idx": 2,
+                    "type": "board",
+                    "content_bbox": [0.0, 0.0, 1.0, 0.9],
+                    "board_kind": "chalk",
+                },
+                {
+                    "idx": 3,
+                    "type": "code",
+                    "content_bbox": [0.05, 0.0, 0.9, 1.0],
+                    "board_kind": "none",
+                },
+            ]
+        }
     )
     llm = FakeLlm([resp])
     regimes = _regimes()
@@ -83,9 +112,16 @@ async def test_classify_applies_vlm_verdicts_and_bbox():
 async def test_tie_breaker_slides_with_code_screenshot():
     # VLM говорит code, но временнáя сигнатура «не печатает» → остаётся slides
     resp = json.dumps(
-        [
-            {"idx": 1, "type": "code", "content_bbox": [0.1, 0.1, 0.8, 0.8], "board_kind": "none"},
-        ]
+        {
+            "results": [
+                {
+                    "idx": 1,
+                    "type": "code",
+                    "content_bbox": [0.1, 0.1, 0.8, 0.8],
+                    "board_kind": "none",
+                },
+            ]
+        }
     )
     out = await classify_regimes(
         FakeLlm([resp]),
@@ -102,14 +138,16 @@ async def test_tie_breaker_slides_with_code_screenshot():
 
 async def test_implausible_bbox_falls_back_to_none():
     resp = json.dumps(
-        [
-            {
-                "idx": 1,
-                "type": "slides",
-                "content_bbox": [0.9, 0.9, 0.05, 0.05],
-                "board_kind": "none",
-            },
-        ]
+        {
+            "results": [
+                {
+                    "idx": 1,
+                    "type": "slides",
+                    "content_bbox": [0.9, 0.9, 0.05, 0.05],
+                    "board_kind": "none",
+                },
+            ]
+        }
     )
     out = await classify_regimes(
         FakeLlm([resp]),
@@ -127,16 +165,20 @@ async def test_implausible_bbox_falls_back_to_none():
 async def test_batching_over_16_regimes():
     n = 20
     r1 = json.dumps(
-        [
-            {"idx": i + 1, "type": "slides", "content_bbox": None, "board_kind": "none"}
-            for i in range(16)
-        ]
+        {
+            "results": [
+                {"idx": i + 1, "type": "slides", "content_bbox": None, "board_kind": "none"}
+                for i in range(16)
+            ]
+        }
     )
     r2 = json.dumps(
-        [
-            {"idx": i + 1, "type": "slides", "content_bbox": None, "board_kind": "none"}
-            for i in range(4)
-        ]
+        {
+            "results": [
+                {"idx": i + 1, "type": "slides", "content_bbox": None, "board_kind": "none"}
+                for i in range(4)
+            ]
+        }
     )
     llm = FakeLlm([r1, r2])
     out = await classify_regimes(
@@ -163,9 +205,16 @@ async def test_mid_batch_failure_leaves_regimes_untouched():
             return await super().call(*args, **kwargs)
 
     resp = json.dumps(
-        [
-            {"idx": 1, "type": "code", "content_bbox": [0.1, 0.1, 0.8, 0.8], "board_kind": "none"},
-        ]
+        {
+            "results": [
+                {
+                    "idx": 1,
+                    "type": "code",
+                    "content_bbox": [0.1, 0.1, 0.8, 0.8],
+                    "board_kind": "none",
+                },
+            ]
+        }
     )
     regimes = [Regime(0, 60, "slides"), Regime(60, 120, "board")]
     try:

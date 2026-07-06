@@ -61,16 +61,26 @@ def _extract_rate_limit_raw(error: openai.RateLimitError) -> str:
         return ""
 
 
+def _detect_image_mime(image: bytes) -> str:
+    """Определяет MIME по магическим байтам. По умолчанию — png (обратная совместимость)."""
+    if image.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    if image.startswith(b"\x89PNG"):
+        return "image/png"
+    return "image/png"
+
+
 def _build_messages(prompt: str, images: list[bytes] | None) -> list[dict]:
     if not images:
         return [{"role": "user", "content": prompt}]
     content: list[dict] = [{"type": "text", "text": prompt}]
     for image in images:
         b64 = base64.b64encode(image).decode()
+        mime = _detect_image_mime(image)
         content.append(
             {
                 "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{b64}"},
+                "image_url": {"url": f"data:{mime};base64,{b64}"},
             }
         )
     return [{"role": "user", "content": content}]

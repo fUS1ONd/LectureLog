@@ -38,6 +38,19 @@ def _parse_json(raw: str) -> Any:
     return json.loads(text)
 
 
+def _parse_verdicts(raw: str) -> list:
+    """Достаёт список вердиктов из ответа VLM.
+
+    LlmClient в режиме response_json=True форсирует top-level JSON-ОБЪЕКТ
+    (response_format={"type": "json_object"}), поэтому промпты просят обёртку
+    {"results": [...]}. Голый массив тоже принимаем — на случай, если модель
+    его всё же вернёт (устойчивость к отклонениям формата)."""
+    parsed = _parse_json(raw)
+    if isinstance(parsed, dict):
+        return parsed.get("results", [])
+    return parsed
+
+
 def _valid_bbox(bbox: Any) -> tuple[float, float, float, float] | None:
     """Неправдоподобный bbox (площадь < 10% или выход за кадр) → None (полный кадр)."""
     if not (isinstance(bbox, list) and len(bbox) == 4):
@@ -86,9 +99,9 @@ async def classify_regimes(
             response_json=True,
             effort=effort,
         )
-        verdicts = _parse_json(raw)
+        verdicts = _parse_verdicts(raw)
         if not isinstance(verdicts, list):
-            raise ValueError("ответ классификации режимов должен быть JSON-массивом")
+            raise ValueError("ответ классификации режимов должен содержать список вердиктов")
         by_idx = {int(v.get("idx", 0)): v for v in verdicts if isinstance(v, dict)}
         for offset in range(len(batch)):
             v = by_idx.get(offset + 1)
@@ -138,7 +151,7 @@ async def qc_frames(
                 response_json=True,
                 effort=effort,
             )
-            verdicts = _parse_json(raw)
+            verdicts = _parse_verdicts(raw)
             by_idx = {int(v["idx"]): v for v in verdicts if isinstance(v, dict)}
         except Exception as error:  # noqa: BLE001 — деградация QC на любом сбое батча
             logger.warning("QC-батч не распарсен (%s): кадры остаются без QC", error)

@@ -20,11 +20,13 @@ def _items(tmp_path, n):
 
 async def test_qc_drops_garbage_and_captions(tmp_path):
     resp = json.dumps(
-        [
-            {"idx": 1, "keep": True, "caption": "Титульный слайд", "dup_group": None},
-            {"idx": 2, "keep": False, "caption": None, "dup_group": None},
-            {"idx": 3, "keep": True, "caption": "Схема архитектуры", "dup_group": None},
-        ]
+        {
+            "results": [
+                {"idx": 1, "keep": True, "caption": "Титульный слайд", "dup_group": None},
+                {"idx": 2, "keep": False, "caption": None, "dup_group": None},
+                {"idx": 3, "keep": True, "caption": "Схема архитектуры", "dup_group": None},
+            ]
+        }
     )
     out = await qc_frames(
         FakeLlm([resp]),
@@ -40,11 +42,13 @@ async def test_qc_drops_garbage_and_captions(tmp_path):
 
 async def test_qc_dedup_groups_keep_first(tmp_path):
     resp = json.dumps(
-        [
-            {"idx": 1, "keep": True, "caption": "Доска: определение", "dup_group": 1},
-            {"idx": 2, "keep": True, "caption": "Доска: определение (дубль)", "dup_group": 1},
-            {"idx": 3, "keep": True, "caption": "Код примера", "dup_group": None},
-        ]
+        {
+            "results": [
+                {"idx": 1, "keep": True, "caption": "Доска: определение", "dup_group": 1},
+                {"idx": 2, "keep": True, "caption": "Доска: определение (дубль)", "dup_group": 1},
+                {"idx": 3, "keep": True, "caption": "Код примера", "dup_group": None},
+            ]
+        }
     )
     out = await qc_frames(
         FakeLlm([resp]),
@@ -55,6 +59,25 @@ async def test_qc_dedup_groups_keep_first(tmp_path):
         tuning=FramesTuning(),
     )
     assert len(out) == 2  # из группы дублей остаётся один (лучший = первый keep)
+
+
+async def test_qc_accepts_bare_json_array_for_robustness(tmp_path):
+    resp = json.dumps(
+        [
+            {"idx": 1, "keep": True, "caption": "Слайд", "dup_group": None},
+            {"idx": 2, "keep": False, "caption": None, "dup_group": None},
+        ]
+    )
+    out = await qc_frames(
+        FakeLlm([resp]),
+        ["m"],
+        "low",
+        _items(tmp_path, 2),
+        srt_text_at=lambda ts: "",
+        tuning=FramesTuning(),
+    )
+    assert len(out) == 1
+    assert out[0].caption == "Слайд"
 
 
 async def test_qc_malformed_response_keeps_all(tmp_path):

@@ -66,7 +66,6 @@ def coding_candidates_from_frames(
     edit_accum = 0.0  # накопленные кадры-правки текущего burst
     quiet_run = 0.0
     burst_done = False  # был ли burst, ждущий точку остановки
-    last_switch_ts: float | None = None
     recent_raw: deque[float] = deque(maxlen=smooth_window)
 
     for i in range(1, len(frames)):
@@ -85,7 +84,6 @@ def coding_candidates_from_frames(
         # мгновенной (raw) площади: сглаживание размазало бы его ниже порога.
         if raw_area >= tuning.switch_area_min and not is_scroll:
             # Переключение окна: буст последнего кандидата + кадр вывода (пара)
-            last_switch_ts = ts
             if candidates and ts - candidates[-1].ts <= tuning.pair_window_s:
                 candidates[-1].score += 1.0
                 # Кадр вывода после «устаканивания», но не дальше конца режима
@@ -109,7 +107,6 @@ def coding_candidates_from_frames(
                 candidates.append(Candidate(ts=cand_ts, kind="code", regime=regime, score=score))
                 burst_done = False
                 edit_accum = 0.0
-    _ = last_switch_ts
     return candidates
 
 
