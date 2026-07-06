@@ -37,14 +37,20 @@ class BackgroundModel:
         self._still[:] = 0
 
 
-def ink_mask(model: np.ndarray, board_kind: str, delta: int) -> np.ndarray:
+def ink_mask(model: np.ndarray, board_kind: str, delta: int, open_px: int = 0) -> np.ndarray:
     """Штриховые пиксели: нормализация освещения делением на сильно размытую
-    версию, затем порог с полярностью по типу доски (мел — светлое на тёмном)."""
+    версию, затем порог с полярностью по типу доски (мел — светлое на тёмном).
+    open_px > 1 — морфологическое открытие: убирает мелкие пятна-шум (остатки
+    текстуры препода, «въехавшей» в background model на редких стоп-кадрах)."""
     blur = cv2.GaussianBlur(model, (0, 0), sigmaX=15)
     norm = cv2.divide(model.astype(np.float32), np.maximum(blur, 1).astype(np.float32))
-    if board_kind == "chalk":
-        return norm > 1.0 + delta / 128.0
-    return norm < 1.0 - delta / 128.0
+    # Полярность: мел — светлое на тёмном, маркер — тёмное на светлом
+    mask = (norm > 1.0 + delta / 128.0 if board_kind == "chalk"
+            else norm < 1.0 - delta / 128.0)
+    if open_px > 1:
+        kernel = np.ones((open_px, open_px), np.uint8)
+        mask = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_OPEN, kernel).astype(bool)
+    return mask
 
 
 def _roi_slice(shape: tuple[int, int], bbox) -> tuple[slice, slice]:
@@ -70,12 +76,17 @@ def board_candidates(
     ys, xs = _roi_slice(store.get(i0).shape, regime.bbox)
     kind = regime.board_kind if regime.board_kind != "none" else "chalk"
 
+    # Пороги в секундах → в кадры через fps трека (при fps != 1 иначе поедет)
+    stable_frames = max(1, round(tuning.board_stable_s * track.fps))
+    erase_frames = max(1, round(tuning.erase_window_s * track.fps))
+
     model = BackgroundModel(store.get(i0), gate_k=tuning.gate_k)
     prev = store.get(i0)
     candidates: list[Candidate] = []
     ink_hist: list[int] = []
     last_shot_ink: np.ndarray | None = None
     stable_run = 0
+    shift_run = 0  # подряд кадров с shift выше порога (фильтр одиночных выбросов)
     # Последнее стабильное состояние — для снимка пред-стирания
     last_stable: tuple[float, np.ndarray, np.ndarray] | None = None  # (ts, model, ink)
 
@@ -87,10 +98,18 @@ def board_candidates(
 
     for i in range(i0 + 1, i1):
         cur = store.get(i)
-        m = model.update(cur, motion_mask(prev, cur))
+        motion = motion_mask(prev, cur)
+        if tuning.motion_dilate_extra > 0:
+            # Расширенная маска движения: гасит пиксели текстуры препода,
+            # случайно совпавшие кадр-к-кадру, — они не «замирают» в модели
+            motion = cv2.dilate(motion.astype(np.uint8), np.ones((3, 3), np.uint8),
+                                iterations=tuning.motion_dilate_extra).astype(bool)
+        m = model.update(cur, motion)
         prev = cur
-        if track.shift[i] > tuning.board_shift_reset:
-            # Едущая доска/панорама: зафиксировать накопленное и сбросить модель
+        shift_run = shift_run + 1 if track.shift[i] > tuning.board_shift_reset else 0
+        if shift_run >= tuning.board_shift_persist:
+            # Едущая доска/панорама (устойчивый сдвиг, не одиночный выброс):
+            # зафиксировать накопленное и сбросить модель
             if last_stable is not None and _is_novel(last_stable[2], last_shot_ink, tuning):
                 emit(last_stable[0], last_stable[1], last_stable[2], score=1.0)
             model.reset(cur)
@@ -99,14 +118,14 @@ def board_candidates(
             last_stable = None
             continue
 
-        ink = ink_mask(m[ys, xs], kind, tuning.ink_delta)
+        ink = ink_mask(m[ys, xs], kind, tuning.ink_delta, tuning.ink_open_px)
         count = int(ink.sum())
         ink_hist.append(count)
         ts = i / track.fps
 
         # Стирание: резкое падение против максимума недавнего окна
-        win = ink_hist[-(tuning.erase_window_s + 1):]
-        if (len(win) > tuning.erase_window_s and max(win) > tuning.min_ink_px
+        win = ink_hist[-(erase_frames + 1):]
+        if (len(win) > erase_frames and max(win) > tuning.min_ink_px
                 and count < max(win) * (1 - tuning.erase_drop_frac)):
             if last_stable is not None and _is_novel(last_stable[2], last_shot_ink, tuning):
                 emit(last_stable[0], last_stable[1], last_stable[2], score=1.2)
@@ -116,13 +135,14 @@ def board_candidates(
             continue
 
         # Стабильность: |Δink| в пределах эпсилона
-        if len(ink_hist) >= 2 and abs(ink_hist[-1] - ink_hist[-2]) <= max(
-                2, int(0.02 * max(count, 1))):
+        eps = max(tuning.ink_stable_eps_min,
+                  int(tuning.ink_stable_eps_frac * max(count, 1)))
+        if len(ink_hist) >= 2 and abs(ink_hist[-1] - ink_hist[-2]) <= eps:
             stable_run += 1
         else:
             stable_run = 0
 
-        if stable_run >= tuning.board_stable_s and count >= tuning.min_ink_px:
+        if stable_run >= stable_frames and count >= tuning.min_ink_px:
             last_stable = (ts, model.snapshot(), ink)
             if _is_novel(ink, last_shot_ink, tuning):
                 emit(ts, model.snapshot(), ink, score=1.0)
