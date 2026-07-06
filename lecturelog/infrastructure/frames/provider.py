@@ -97,6 +97,11 @@ class VideoFrameProvider(SlideProvider):
         if len(candidates) > t.max_candidates:
             candidates = sorted(candidates, key=lambda c: c.score, reverse=True)
             candidates = sorted(candidates[: t.max_candidates], key=lambda c: c.ts)
+        # Cap по бюджету кадров ДО render — pair-aware: пара «код+вывод»
+        # рендерится в 2 кадра и либо влезает целиком, либо пропускается.
+        # Финальный срез после QC рвал бы половину пары (QC кадры только
+        # убирает, так что бюджет max_frames после этого не превышается).
+        candidates = self._cap_by_frames(candidates, t.max_frames)
         if not candidates:
             return []
 
@@ -114,8 +119,7 @@ class VideoFrameProvider(SlideProvider):
         except Exception as error:  # noqa: BLE001 — деградация по дизайну §10
             logger.warning("VLM QC недоступен (%s): кадры без подписей", error)
 
-        items = sorted(items, key=lambda i: i.timestamp)[: t.max_frames]
-        return items
+        return sorted(items, key=lambda i: i.timestamp)
 
     def _representatives(
         self, regimes: list[Regime], track: SignalTrack, store: ThumbStore
@@ -157,6 +161,20 @@ class VideoFrameProvider(SlideProvider):
                 out.extend(slide_candidates(regime, track, store, t))
             # speaker / other → 0 кандидатов (это норма, дизайн §1)
         return sorted(out, key=lambda c: c.ts)
+
+    @staticmethod
+    def _cap_by_frames(candidates: list[Candidate], max_frames: int) -> list[Candidate]:
+        """Обрезка по бюджету кадров с учётом пар: кандидат с pair_ts даёт
+        2 кадра и берётся только целиком — рвать пару «код+вывод» нельзя."""
+        out: list[Candidate] = []
+        budget = max_frames
+        for cand in candidates:
+            cost = 2 if cand.pair_ts is not None else 1
+            if cost > budget:
+                continue  # пара не влезает — пропускаем, одиночный ещё может влезть
+            out.append(cand)
+            budget -= cost
+        return out
 
     @staticmethod
     def _nearest_text(srt_blocks: list[tuple[float, str]], ts: float) -> str:

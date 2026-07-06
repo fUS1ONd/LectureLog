@@ -59,16 +59,27 @@ def decode_gray(
         "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1",
     ]
     frame_bytes = w * h
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    exhausted = False  # поток дочитан до конца (а не early break потребителя)
     try:
         while True:
             buf = proc.stdout.read(frame_bytes)
             if len(buf) < frame_bytes:
+                exhausted = True
                 break
             yield np.frombuffer(buf, dtype=np.uint8).reshape(h, w)
     finally:
         proc.stdout.close()
-        proc.wait()
+        stderr_tail = proc.stderr.read()[-500:].decode("utf-8", errors="replace")
+        proc.stderr.close()
+        returncode = proc.wait()
+        # Сбой декода — инфраструктурная ошибка, молча усечённый поток недопустим.
+        # Но бросаем только при нормальном исчерпании: досрочное закрытие
+        # генератора потребителем (GeneratorExit) — не ошибка ffmpeg.
+        if exhausted and returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg декод {video} завершился с кодом {returncode}: {stderr_tail}"
+            )
 
 
 def decode_window(video: Path, ts: float, window_s: float, max_fps: int = 10) -> list[np.ndarray]:

@@ -68,8 +68,14 @@ async def classify_regimes(
     """VLM уточняет/перебивает предварительный тип из сегментации.
 
     Тай-брейкер (дизайн §5.C): «слайды с кодом» не печатают — если VLM сказал
-    code, а micro_rate режима низкий, оставляем slides."""
+    code, а micro_rate режима низкий, оставляем slides.
+
+    Отказ атомарен: вердикты всех батчей сначала копятся во временной карте и
+    применяются к Regime только после успешного прохода всех батчей — сбой на
+    середине не оставляет частичных VLM-мутаций (provider тогда деградирует
+    до чистых сигнатур сегментации B)."""
     prompt = (prompts_dir / "frames_classify_v1.md").read_text(encoding="utf-8")
+    pending: dict[int, dict] = {}  # глобальный индекс режима → вердикт VLM
     for start in range(0, len(regimes), tuning.vlm_batch):
         batch = regimes[start : start + tuning.vlm_batch]
         images = [_encode_jpeg(f) for f in rep_frames[start : start + tuning.vlm_batch]]
@@ -81,17 +87,20 @@ async def classify_regimes(
         if not isinstance(verdicts, list):
             raise ValueError("ответ классификации режимов должен быть JSON-массивом")
         by_idx = {int(v.get("idx", 0)): v for v in verdicts if isinstance(v, dict)}
-        for offset, regime in enumerate(batch):
+        for offset in range(len(batch)):
             v = by_idx.get(offset + 1)
-            if v is None:
-                continue
-            vlm_kind = str(v.get("type", regime.kind))
-            if vlm_kind in ("code", "terminal") and micro_rate[start + offset] < 0.2:
-                vlm_kind = regime.kind  # временнáя сигнатура — тай-брейкер
-            regime.kind = vlm_kind
-            regime.bbox = _valid_bbox(v.get("content_bbox"))
-            bk = str(v.get("board_kind", "none"))
-            regime.board_kind = bk if bk in ("chalk", "marker") else "none"
+            if v is not None:
+                pending[start + offset] = v
+    # Все батчи прошли успешно — только теперь применяем вердикты
+    for i, v in pending.items():
+        regime = regimes[i]
+        vlm_kind = str(v.get("type", regime.kind))
+        if vlm_kind in ("code", "terminal") and micro_rate[i] < 0.2:
+            vlm_kind = regime.kind  # временнáя сигнатура — тай-брейкер
+        regime.kind = vlm_kind
+        regime.bbox = _valid_bbox(v.get("content_bbox"))
+        bk = str(v.get("board_kind", "none"))
+        regime.board_kind = bk if bk in ("chalk", "marker") else "none"
     return regimes
 
 

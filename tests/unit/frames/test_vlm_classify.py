@@ -88,3 +88,30 @@ async def test_batching_over_16_regimes():
         [_thumb()] * n, micro_rate=[0.0] * n, tuning=FramesTuning(), on_usage=None,
     )
     assert len(llm.calls) == 2 and len(out) == n
+
+
+async def test_mid_batch_failure_leaves_regimes_untouched():
+    # Атомарность: сбой на 2-м батче не должен оставить частичные VLM-мутации —
+    # provider в этом случае откатывается на чистые сигнатуры сегментации B.
+    class HalfBrokenLlm(FakeLlm):
+        async def call(self, *args, **kwargs):
+            if self.calls:  # второй батч падает
+                self.calls.append({})
+                raise RuntimeError("free tier исчерпан")
+            return await super().call(*args, **kwargs)
+
+    resp = json.dumps([
+        {"idx": 1, "type": "code", "content_bbox": [0.1, 0.1, 0.8, 0.8],
+         "board_kind": "none"},
+    ])
+    regimes = [Regime(0, 60, "slides"), Regime(60, 120, "board")]
+    try:
+        await classify_regimes(
+            HalfBrokenLlm([resp]), ["m"], "low", regimes, [_thumb()] * 2,
+            micro_rate=[0.9, 0.9], tuning=FramesTuning(vlm_batch=1), on_usage=None,
+        )
+        raise AssertionError("ожидался проброс ошибки VLM")
+    except RuntimeError:
+        pass
+    assert [r.kind for r in regimes] == ["slides", "board"]  # без частичных мутаций
+    assert all(r.bbox is None for r in regimes)

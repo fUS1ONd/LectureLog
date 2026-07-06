@@ -42,3 +42,29 @@ def test_decode_window_fullres(tmp_path):
     frames = decode_window(_video(tmp_path), ts=10.0, window_s=2.0, max_fps=5)
     assert len(frames) >= 3
     assert frames[0].shape == (180, 320)  # нативное разрешение синтетики
+
+
+def test_decode_gray_raises_on_corrupt_stream(tmp_path):
+    # Усечённый mp4 с faststart: probe проходит, декод обрывается —
+    # инфраструктурная ошибка должна пробрасываться, а не давать пустой поток.
+    import subprocess
+
+    import pytest
+
+    fast = tmp_path / "fast.mp4"
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(_video(tmp_path)),
+         "-c", "copy", "-movflags", "+faststart", str(fast)],
+        check=True,
+    )
+    trunc = tmp_path / "trunc.mp4"
+    trunc.write_bytes(fast.read_bytes()[: fast.stat().st_size // 2])
+    with pytest.raises(RuntimeError, match="ffmpeg"):
+        list(decode_gray(trunc, fps=1.0, width=160))
+
+
+def test_decode_gray_early_break_does_not_raise(tmp_path):
+    # Потребитель может закрыть генератор досрочно — это не ошибка декода
+    gen = decode_gray(_video(tmp_path), fps=1.0, width=160)
+    next(gen)
+    gen.close()

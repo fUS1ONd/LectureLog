@@ -81,3 +81,22 @@ async def test_speaker_only_video_returns_empty(tmp_path):
         llm=llm, models=["m"], effort="low", tuning=FramesTuning(),
     )
     assert await provider.get_slides(tmp_path / "out") == []  # это норма (дизайн §1)
+
+
+def test_cap_is_pair_aware():
+    # Пара «код+вывод» на границе cap не должна рваться: либо оба, либо никто
+    from lecturelog.infrastructure.frames.provider import VideoFrameProvider
+    from lecturelog.infrastructure.frames.types import Candidate
+
+    cands = [
+        Candidate(ts=10.0, kind="slides"),
+        Candidate(ts=20.0, kind="code", pair_ts=25.0),  # рендерится в 2 кадра
+        Candidate(ts=30.0, kind="slides"),
+    ]
+    capped = VideoFrameProvider._cap_by_frames(cands, max_frames=2)
+    # Пара не влезает целиком (1+2 > 2) → пропущена, следующий одиночный взят
+    assert [c.ts for c in capped] == [10.0, 30.0]
+    assert sum(2 if c.pair_ts is not None else 1 for c in capped) <= 2
+
+    capped3 = VideoFrameProvider._cap_by_frames(cands, max_frames=3)
+    assert [c.ts for c in capped3] == [10.0, 20.0]  # пара целиком, 3-й не влез
