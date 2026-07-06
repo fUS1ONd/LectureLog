@@ -30,6 +30,7 @@ import numpy as np
 
 from lecturelog.infrastructure.frames.board import board_candidates
 from lecturelog.infrastructure.frames.coding import coding_candidates_from_frames
+from lecturelog.infrastructure.frames.dedup import dedup_candidates
 from lecturelog.infrastructure.frames.extract import render_candidates
 from lecturelog.infrastructure.frames.ffmpeg_io import ThumbStore, decode_gray
 from lecturelog.infrastructure.frames.provider import VideoFrameProvider, _parse_srt_blocks
@@ -205,6 +206,7 @@ async def run(args: argparse.Namespace) -> None:
     # D: пер-режимные политики
     with timer.track("D_candidates"):
         candidates = _collect_candidates(video, regimes, track, store, srt_blocks, tuning)
+        candidates = dedup_candidates(candidates, store, track, tuning)
     candidates_before_cap = len(candidates)
     if len(candidates) > tuning.max_candidates:
         candidates = sorted(candidates, key=lambda c: c.score, reverse=True)

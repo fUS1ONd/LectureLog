@@ -63,6 +63,7 @@ class FramesTuning:
     seek_window_s: float = 2.0
     board_rebuild_s: int = 60  # окно full-res реконструкции доски перед кандидатом
     # Общие
+    dedup_hamming: int = 6  # dhash-дистанция, ниже которой кандидаты — дубли
     max_candidates: int = 80
     max_frames: int = 60
     vlm_batch: int = 16

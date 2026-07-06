@@ -16,6 +16,7 @@ from lecturelog.domain.ports import ProgressCallback, SlideImage, SlideProvider,
 from lecturelog.infrastructure.frames import vlm
 from lecturelog.infrastructure.frames.board import board_candidates
 from lecturelog.infrastructure.frames.coding import coding_candidates_from_frames
+from lecturelog.infrastructure.frames.dedup import dedup_candidates
 from lecturelog.infrastructure.frames.extract import render_candidates
 from lecturelog.infrastructure.frames.ffmpeg_io import ThumbStore, decode_gray
 from lecturelog.infrastructure.frames.segmentation import segment_regimes
@@ -108,6 +109,9 @@ class VideoFrameProvider(SlideProvider):
         candidates = await asyncio.to_thread(
             self._collect_candidates, regimes, track, store, srt_blocks
         )
+        # Глобальный дедуп до VLM: повторы слайдов и дубли «врезка vs общий
+        # план» между режимами/батчами QC не видит (они в разных вызовах)
+        candidates = dedup_candidates(candidates, store, track, t)
         if len(candidates) > t.max_candidates:
             candidates = sorted(candidates, key=lambda c: c.score, reverse=True)
             candidates = sorted(candidates[: t.max_candidates], key=lambda c: c.ts)
