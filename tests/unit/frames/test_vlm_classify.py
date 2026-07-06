@@ -1,3 +1,4 @@
+import inspect
 import json
 
 import numpy as np
@@ -15,7 +16,11 @@ class FakeLlm:
                    response_json=False, effort=None, retries=5):
         self.calls.append({"prompt": prompt, "images": images})
         if on_usage is not None:
-            await on_usage({"model": models[0], "prompt": 100, "output": 10})
+            # on_usage может быть как sync, так и async (см. UsageCallback) —
+            # await допустим только для awaitable-результата.
+            maybe_awaitable = on_usage({"model": models[0], "prompt": 100, "output": 10})
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
         return self._responses.pop(0)
 
 
