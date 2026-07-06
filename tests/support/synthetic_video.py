@@ -73,6 +73,11 @@ def board_frames(
     в erase_at доска полностью очищается за 2 секунды."""
     rng = np.random.default_rng(seed)
     board = np.full((H, W), 40, dtype=np.uint8)
+    # Фактура препода (одежда/поза) фиксирована относительно его тела и не
+    # меняется по времени: так, при сдвиге блока, пиксели внутри него честно
+    # «двигаются» (локальный индекс текстуры съезжает), а не остаются
+    # неотличимыми кадр-к-кадру, как было бы для однотонного блока.
+    teacher_texture = rng.integers(20, 120, size=(110, 50)).astype(np.uint8)
     frames: list[np.ndarray] = []
     for t in range(total_secs):
         if t < write_secs:
@@ -86,7 +91,7 @@ def board_frames(
         if with_teacher:
             # Препод перекрывает часть доски и медленно двигается
             tx = 40 + int(30 * np.sin(t / 5.0)) + t % 3
-            frame[60:170, tx : tx + 50] = 110
+            frame[60:170, tx : tx + 50] = teacher_texture
         frames.append(frame)
     return frames
 
