@@ -52,14 +52,16 @@ def _even(x: int) -> int:
     return x - (x % 2)
 
 
-def decode_gray(
+def _decode_raw(
     video: Path,
     fps: float,
     width: int,
+    pix_fmt: str,
+    channels: int,
     start_s: float | None = None,
     end_s: float | None = None,
 ) -> Iterator[np.ndarray]:
-    """Прочитать видео (или отрезок) как поток gray-кадров (H, W) uint8."""
+    """Общий rawvideo-декод: поток кадров (H, W) или (H, W, C) uint8."""
     src_w, src_h = _probe_size(video)
     w = _even(min(width, src_w))
     h = _even(round(src_h * w / src_w))
@@ -75,10 +77,11 @@ def decode_gray(
         "-f",
         "rawvideo",
         "-pix_fmt",
-        "gray",
+        pix_fmt,
         "pipe:1",
     ]
-    frame_bytes = w * h
+    shape = (h, w) if channels == 1 else (h, w, channels)
+    frame_bytes = w * h * channels
     # stderr во временный файл, а не в PIPE: при потоковом чтении stdout
     # непрочитанный stderr-пайп переполнился бы и заблокировал ffmpeg до EOF
     # stdout (классический pipe deadlock). Файл не блокирует писателя.
@@ -91,7 +94,7 @@ def decode_gray(
                 if len(buf) < frame_bytes:
                     exhausted = True
                     break
-                yield np.frombuffer(buf, dtype=np.uint8).reshape(h, w)
+                yield np.frombuffer(buf, dtype=np.uint8).reshape(shape)
         finally:
             proc.stdout.close()
             returncode = proc.wait()
@@ -106,12 +109,43 @@ def decode_gray(
                 )
 
 
+def decode_gray(
+    video: Path,
+    fps: float,
+    width: int,
+    start_s: float | None = None,
+    end_s: float | None = None,
+) -> Iterator[np.ndarray]:
+    """Прочитать видео (или отрезок) как поток gray-кадров (H, W) uint8."""
+    return _decode_raw(video, fps, width, "gray", 1, start_s=start_s, end_s=end_s)
+
+
 def decode_window(video: Path, ts: float, window_s: float, max_fps: int = 10) -> list[np.ndarray]:
     """Точечная выемка: full-res gray кадры в окне ±window_s вокруг ts
     (accurate seek: -ss перед -i у ffmpeg точный с ре-декодом от keyframe)."""
     start = max(0.0, ts - window_s)
     src_w, _ = _probe_size(video)
     return list(decode_gray(video, fps=max_fps, width=src_w, start_s=start, end_s=ts + window_s))
+
+
+def decode_window_bgr(
+    video: Path, ts: float, window_s: float, max_fps: int = 10
+) -> list[np.ndarray]:
+    """То же окно, но в цвете (H, W, 3) BGR — для финального рендера кадров:
+    анализ идёт по яркости, а пользователю кадры отдаются цветными."""
+    start = max(0.0, ts - window_s)
+    src_w, _ = _probe_size(video)
+    return list(
+        _decode_raw(
+            video,
+            fps=max_fps,
+            width=src_w,
+            pix_fmt="bgr24",
+            channels=3,
+            start_s=start,
+            end_s=ts + window_s,
+        )
+    )
 
 
 class ThumbStore:

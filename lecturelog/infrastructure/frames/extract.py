@@ -14,14 +14,24 @@ import numpy as np
 
 from lecturelog.domain.ports import SlideImage
 from lecturelog.infrastructure.frames.board import BackgroundModel
-from lecturelog.infrastructure.frames.ffmpeg_io import _probe_size, decode_gray, decode_window
+from lecturelog.infrastructure.frames.ffmpeg_io import (
+    _probe_size,
+    decode_gray,
+    decode_window_bgr,
+)
 from lecturelog.infrastructure.frames.signals import motion_mask
 from lecturelog.infrastructure.frames.types import Candidate, FramesTuning
 
 
 def sharpest_frame(frames: list[np.ndarray]) -> np.ndarray:
-    """Максимальная резкость = variance of Laplacian; I-frames выигрывают сами."""
-    return max(frames, key=lambda f: float(cv2.Laplacian(f, cv2.CV_64F).var()))
+    """Максимальная резкость = variance of Laplacian; I-frames выигрывают сами.
+    Цветные кадры оцениваются по яркостному каналу, возвращаются как есть."""
+
+    def _sharpness(f: np.ndarray) -> float:
+        gray = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) if f.ndim == 3 else f
+        return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+    return max(frames, key=_sharpness)
 
 
 def whiteboard_cleanup(gray: np.ndarray, board_kind: str) -> np.ndarray:
@@ -86,7 +96,8 @@ def _render_one(
         cv2.imwrite(str(path), img)
         return SlideImage(path=path, timestamp=ts)
 
-    window = decode_window(video, ts, tuning.seek_window_s)
+    # Рендер — в цвете: серый декод остаётся только для анализа и board-модели
+    window = decode_window_bgr(video, ts, tuning.seek_window_s)
     img = sharpest_frame(window) if window else None
     if img is None:
         raise RuntimeError(f"не удалось вынуть кадр на ts={ts}")
