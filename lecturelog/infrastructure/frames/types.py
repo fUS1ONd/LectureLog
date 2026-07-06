@@ -41,6 +41,8 @@ class FramesTuning:
     # D2: live-coding
     code_fps: float = 4.0
     code_width: int = 480
+    code_diff_thresh: int = 20     # порог бинаризации попиксельного диффа
+    scroll_shift_min: float = 2.0  # px вертикальной глобальной трансляции → скролл
     edit_smooth_s: float = 1.0    # окно сглаживания diff-сигнала (гасит мигание курсора)
     edit_area_min: float = 0.00013  # ниже — курсор/шум, не правка (сглаженный сигнал)
     edit_area_max: float = 0.03

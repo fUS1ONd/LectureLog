@@ -41,6 +41,38 @@ def test_transcript_trigger_boosts_score():
     assert boosted.score > plain.score
 
 
+def _with_window_switch(frames, switch_sec, fps=FPS):
+    # Переключение окна: с момента switch_sec кадры — «другое окно»
+    # (инвертированный контент → полноэкранный мгновенный дифф)
+    out = list(frames)
+    for i in range(int(switch_sec * fps), len(out)):
+        out[i] = 255 - out[i]
+    return out
+
+
+def test_window_switch_pairs_code_and_output():
+    # burst 2-12с → кандидат ~12.5с, переключение окна на 18с →
+    # буст score и pair_ts сразу после переключения
+    frames = typing_frames(total_secs=30, fps=FPS, burst_ranges=[(2, 12)], seed=6)
+    plain = _cands(frames)[0]
+    cands = _cands(_with_window_switch(frames, switch_sec=18))
+    assert len(cands) == 1
+    boosted = cands[0]
+    assert boosted.score > plain.score
+    assert boosted.pair_ts is not None
+    assert 18 <= boosted.pair_ts <= 20
+
+
+def test_pair_ts_clamped_to_regime_end():
+    # Переключение окна у самого конца режима → pair_ts не выходит за end_s
+    total = 30
+    frames = typing_frames(total_secs=total, fps=FPS, burst_ranges=[(10, 20)], seed=7)
+    cands = _cands(_with_window_switch(frames, switch_sec=total - 2.0 / FPS))
+    assert len(cands) == 1
+    assert cands[0].pair_ts is not None
+    assert cands[0].pair_ts <= total
+
+
 def test_scroll_mid_is_not_candidate():
     # Скролл в середине тишины не должен породить кандидата и не должен
     # сбросить уже найденную точку остановки

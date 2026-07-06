@@ -20,9 +20,6 @@ import numpy as np
 
 from lecturelog.infrastructure.frames.types import Candidate, FramesTuning, Regime
 
-_DIFF_THRESH = 20
-_SCROLL_SHIFT_MIN = 2.0  # px глобальной вертикальной трансляции → скролл
-
 # Словарь триггеров завершённости из транскрипта (дизайн §5.D2)
 _TRIGGERS = (
     "запустим", "запускаем", "скомпилируем", "компилируем", "сохраняем",
@@ -31,8 +28,8 @@ _TRIGGERS = (
 )
 
 
-def _area_frac(prev: np.ndarray, cur: np.ndarray) -> float:
-    return float((cv2.absdiff(cur, prev) > _DIFF_THRESH).mean())
+def _area_frac(prev: np.ndarray, cur: np.ndarray, diff_thresh: int) -> float:
+    return float((cv2.absdiff(cur, prev) > diff_thresh).mean())
 
 
 def _vertical_shift(prev: np.ndarray, cur: np.ndarray) -> float:
@@ -63,20 +60,24 @@ def coding_candidates_from_frames(
 
     for i in range(1, len(frames)):
         ts = regime.start_s + i / fps
-        raw_area = _area_frac(frames[i - 1], frames[i])
+        raw_area = _area_frac(frames[i - 1], frames[i], tuning.code_diff_thresh)
         recent_raw.append(raw_area)
         area = sum(recent_raw) / len(recent_raw)  # сглаженный сигнал правок
         # Скролл распознаём по мгновенному сдвигу, а не по сглаженной площади:
         # одиночный кадр скролла — большой вертикальный shift независимо от area.
         is_scroll = raw_area > tuning.edit_area_min and _vertical_shift(
-            frames[i - 1], frames[i]) > _SCROLL_SHIFT_MIN
+            frames[i - 1], frames[i]) > tuning.scroll_shift_min
 
-        if area >= tuning.switch_area_min and not is_scroll:
+        # Переключение окна — одиночный полноэкранный дифф; проверяем по
+        # мгновенной (raw) площади: сглаживание размазало бы его ниже порога.
+        if raw_area >= tuning.switch_area_min and not is_scroll:
             # Переключение окна: буст последнего кандидата + кадр вывода (пара)
             last_switch_ts = ts
             if candidates and ts - candidates[-1].ts <= tuning.pair_window_s:
                 candidates[-1].score += 1.0
-                candidates[-1].pair_ts = ts + tuning.pair_settle_s
+                # Кадр вывода после «устаканивания», но не дальше конца режима
+                candidates[-1].pair_ts = min(
+                    ts + tuning.pair_settle_s, regime.end_s - 1.0 / fps)
             edit_accum = 0.0
             quiet_run = 0.0
             burst_done = False
