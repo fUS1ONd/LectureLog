@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
 
+from lecturelog.domain.ports import SlideImage
 from lecturelog.infrastructure.frames.types import FramesTuning, Regime
 
 logger = logging.getLogger(__name__)
@@ -91,3 +93,57 @@ async def classify_regimes(
             bk = str(v.get("board_kind", "none"))
             regime.board_kind = bk if bk in ("chalk", "marker") else "none"
     return regimes
+
+
+async def qc_frames(
+    llm: Any,
+    models: list[str],
+    effort: str,
+    items: list[SlideImage],
+    srt_text_at: Callable[[float], str],
+    tuning: FramesTuning,
+    on_usage: Any = None,
+    prompts_dir: Path = _PROMPTS_DIR,
+) -> list[SlideImage]:
+    """QC + подписи (дизайн §5.F): keep/drop, caption, группы семантических
+    дублей (из группы остаётся первый keep). Ошибка парсинга батча —
+    деградация: батч возвращается как есть, без подписей."""
+    base_prompt = (prompts_dir / "frames_qc_v1.md").read_text(encoding="utf-8")
+    result: list[SlideImage] = []
+    for start in range(0, len(items), tuning.vlm_batch):
+        batch = items[start : start + tuning.vlm_batch]
+        legend = "\n".join(
+            f"{i + 1}. ts={item.timestamp:.0f}с; реплика: «{srt_text_at(item.timestamp)}»"
+            for i, item in enumerate(batch)
+        )
+        images = [_encode_jpeg(cv2.imread(str(item.path))) for item in batch]
+        try:
+            raw = await llm.call(
+                prompt=f"{base_prompt}\n\nКадры:\n{legend}", models=models,
+                images=images, on_usage=on_usage, response_json=True, effort=effort,
+            )
+            verdicts = _parse_json(raw)
+            by_idx = {int(v["idx"]): v for v in verdicts if isinstance(v, dict)}
+        except Exception as error:  # noqa: BLE001 — деградация QC на любом сбое батча
+            logger.warning("QC-батч не распарсен (%s): кадры остаются без QC", error)
+            result.extend(batch)
+            continue
+        seen_groups: set[int] = set()
+        for i, item in enumerate(batch):
+            v = by_idx.get(i + 1)
+            if v is None:
+                result.append(item)
+                continue
+            if not v.get("keep", True):
+                continue
+            group = v.get("dup_group")
+            if isinstance(group, int):
+                if group in seen_groups:
+                    continue
+                seen_groups.add(group)
+            caption = v.get("caption")
+            result.append(SlideImage(
+                path=item.path, timestamp=item.timestamp,
+                caption=str(caption) if caption else None,
+            ))
+    return result
