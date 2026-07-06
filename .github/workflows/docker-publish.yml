@@ -23,6 +23,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup ffmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v3
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
