@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import inspect
 import json
@@ -27,6 +28,9 @@ UsageCallback = Callable[[dict], Any]
 
 _DEFAULT_MAX_TOKENS = 4096
 _BYOK_PROVIDER = {"only": ["google-ai-studio"], "allow_fallbacks": False}
+# Бэк-офф между ретраями сетевых ошибок (ConnectTimeout и т.п.): разовый флап
+# сети не должен ронять всю задачу — повтор почти всегда проходит.
+_NETWORK_BACKOFF_S = 2.0
 
 
 async def _emit_usage(on_usage: UsageCallback | None, payload: dict) -> None:
@@ -110,7 +114,7 @@ class LlmClient:
             extra_body["reasoning"] = {"effort": effort, "exclude": True}
 
         last_error: Exception | None = None
-        for _ in range(retries):
+        for attempt in range(retries):
             model = await self._cooldown.acquire(models)
             kwargs: dict[str, Any] = {
                 "model": model,
@@ -129,6 +133,19 @@ class LlmClient:
                     raw, seconds_to_midnight=self._cooldown.seconds_to_midnight()
                 )
                 await self._cooldown.mark_rate_limited(model, ttl)
+                continue
+            except (openai.APITimeoutError, openai.APIConnectionError) as error:
+                # Сетевой флап (не 429): модель не виновата, cooldown не трогаем —
+                # ждём с нарастающим бэк-оффом и пробуем снова.
+                last_error = error
+                logger.warning(
+                    "Сетевая ошибка OpenRouter (%s), попытка %d/%d: %s",
+                    model,
+                    attempt + 1,
+                    retries,
+                    error,
+                )
+                await asyncio.sleep(_NETWORK_BACKOFF_S * (attempt + 1))
                 continue
 
             text = getattr(resp.choices[0].message, "content", None)
