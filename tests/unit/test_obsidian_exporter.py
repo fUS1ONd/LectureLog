@@ -1,6 +1,7 @@
 import pytest
 
 from lecturelog.domain.models import Section, Topic
+from lecturelog.domain.ports import SlideImage
 from lecturelog.infrastructure.export.obsidian_exporter import ObsidianExporter, _slugify
 
 
@@ -32,7 +33,7 @@ async def test_export_lays_out_output_dir_and_returns_targets(tmp_path):
     result = await exporter.export(
         topics=[topic],
         media_fragments=[frag],
-        slide_images=[slide],
+        slide_images=[SlideImage(path=slide)],
         output_dir=output_dir,
         media_kind="audio",
     )

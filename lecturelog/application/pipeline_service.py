@@ -23,6 +23,7 @@ from lecturelog.domain.ports import (
     Exporter,
     MediaCutter,
     MediaIngestor,
+    SlideImage,
     SlideProvider,
     Storage,
     Structurizer,
@@ -210,7 +211,7 @@ class PipelineService:
             # Инкрементальный персист: transcribe доезжает ДО появления structurize.
             await self._persist_usage(task, acc)
 
-            slide_images: list[Path] = []
+            slide_items: list[SlideImage] = []
             if slide_provider is not None:
                 # Извлечение слайдов из видео удалено (фаза 2/3, VideoSlideProvider
                 # больше не существует): единственный источник слайдов — документ,
@@ -226,7 +227,7 @@ class PipelineService:
                     stage=PipelineStage.SLIDES,
                     progress=plan.stage_start(PipelineStage.SLIDES),
                 )
-                slide_images = await slide_provider.get_slides(
+                slide_items = await slide_provider.get_slides(
                     output_dir=work_dir / "slides",
                     on_usage=None,
                 )
@@ -246,7 +247,7 @@ class PipelineService:
 
             topics = await self._structurizer.structurize(
                 srt_path=srt_path,
-                slide_images=slide_images,
+                slide_images=[s.path for s in slide_items],
                 output_dir=work_dir / "structurize",
                 on_progress=structurize_progress,
                 on_usage=structurize_usage,
@@ -271,7 +272,7 @@ class PipelineService:
             export_result = await self._exporter.export(
                 topics=topics,
                 media_fragments=fragments,
-                slide_images=slide_images,
+                slide_images=slide_items,
                 output_dir=work_dir / "export",
                 media_kind=media_kind,
             )
