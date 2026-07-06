@@ -15,6 +15,7 @@ class FramesTuning:
     # A: грубый проход
     analysis_fps: float = 1.0
     analysis_width: int = 320
+    subtitle_band_frac: float = 0.2  # нижняя доля кадра вне mad/motion/shift (hardsub)
     # B: сегментация
     window_s: int = 30
     min_regime_s: int = 20

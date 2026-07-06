@@ -141,6 +141,7 @@ async def run(args: argparse.Namespace) -> None:
             decode_gray(video, fps=tuning.analysis_fps, width=tuning.analysis_width),
             fps=tuning.analysis_fps,
             thumbs=store,
+            ignore_bottom_frac=tuning.subtitle_band_frac,
         )
     np.savez(
         out_dir / "signals.npz",

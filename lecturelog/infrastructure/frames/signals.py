@@ -40,8 +40,16 @@ def _edge_density(gray: np.ndarray) -> float:
 
 
 def compute_signals(
-    frames: Iterator[np.ndarray], fps: float, thumbs: ThumbStore | None = None
+    frames: Iterator[np.ndarray],
+    fps: float,
+    thumbs: ThumbStore | None = None,
+    ignore_bottom_frac: float = 0.0,
 ) -> SignalTrack:
+    """ignore_bottom_frac — доля нижней части кадра, исключаемая из временных
+    сигналов (mad/motion/shift): вшитые субтитры меняются каждые 1–3 с и иначе
+    рвут все плато (реальный кейс — лекция с hardsub). edge/dhash/тумбы
+    считаются по полному кадру: субтитры почти не влияют на плотность граней,
+    а тумбы нужны целиком для VLM."""
     mad: list[float] = []
     motion: list[float] = []
     edge: list[float] = []
@@ -55,17 +63,20 @@ def compute_signals(
             thumbs.put(idx, frame)
         hashes.append(dhash(frame))
         edge.append(_edge_density(frame))
-        f32 = frame.astype(np.float32)
+        crop = frame
+        if ignore_bottom_frac > 0.0:
+            crop = frame[: max(1, int(frame.shape[0] * (1.0 - ignore_bottom_frac))), :]
+        f32 = crop.astype(np.float32)
         if prev is None:
             mad.append(0.0)
             motion.append(0.0)
             shift.append(0.0)
         else:
-            mad.append(float(cv2.absdiff(frame, prev).mean()))
-            motion.append(float(motion_mask(prev, frame).mean()))
+            mad.append(float(cv2.absdiff(crop, prev).mean()))
+            motion.append(float(motion_mask(prev, crop).mean()))
             (dx, dy), _resp = cv2.phaseCorrelate(prev_f32, f32)
             shift.append(float(np.hypot(dx, dy)))
-        prev, prev_f32 = frame, f32
+        prev, prev_f32 = crop, f32
 
     return SignalTrack(
         fps=fps,

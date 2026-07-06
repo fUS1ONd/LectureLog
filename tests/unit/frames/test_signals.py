@@ -42,3 +42,21 @@ def test_thumbs_written(tmp_path):
     store = ThumbStore(tmp_path)
     compute_signals(iter(frames), fps=1.0, thumbs=store)
     assert store.get(0).shape == frames[0].shape
+
+
+def test_blinking_subtitle_band_ignored(tmp_path):
+    # Статичный «слайд» + мигающая полоса субтитров внизу: без исключения полосы
+    # mad рвётся, с ignore_bottom_frac плато выживает (кейс hardsub-лекции)
+    base = np.full((180, 320), 235, dtype=np.uint8)
+    frames = []
+    for t in range(20):
+        f = base.copy()
+        if t % 2 == 0:  # субтитр меняется каждый кадр-другой
+            f[160:175, 40:280] = 30
+        frames.append(f)
+    dirty = compute_signals(iter(frames), fps=1.0, thumbs=ThumbStore(tmp_path / "a"))
+    clean = compute_signals(
+        iter(frames), fps=1.0, thumbs=ThumbStore(tmp_path / "b"), ignore_bottom_frac=0.2
+    )
+    assert float(dirty.mad[2:].min()) > 2.0  # полоса рвёт плато
+    assert float(clean.mad[2:].max()) < 0.5  # без полосы кадр стабилен

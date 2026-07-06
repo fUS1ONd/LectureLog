@@ -81,6 +81,7 @@ class VideoFrameProvider(SlideProvider):
                 decode_gray(self._video, fps=t.analysis_fps, width=t.analysis_width),
                 fps=t.analysis_fps,
                 thumbs=store,
+                ignore_bottom_frac=t.subtitle_band_frac,
             )
         )
         # B: сегментация
