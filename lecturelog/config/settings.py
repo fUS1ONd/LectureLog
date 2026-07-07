@@ -41,10 +41,12 @@ class LlmConfig(BaseSettings):
     )
     concurrency_subsplit: int = Field(2, alias="LLM_CONCURRENCY_SUBSPLIT")
     concurrency_render: int = Field(5, alias="LLM_CONCURRENCY_RENDER")
-    # reasoning effort по стадиям (дизайн: подобрать; старт — консервативно)
-    effort_split: str = Field("low", alias="LLM_EFFORT_SPLIT")
-    effort_subsplit: str = Field("low", alias="LLM_EFFORT_SUBSPLIT")
-    effort_render: str = Field("low", alias="LLM_EFFORT_RENDER")
+    # reasoning effort по стадиям: контентные стадии — medium; на low модель
+    # эпизодически игнорирует инструкции промпта (реальный кейс — английские
+    # заголовки/секции вопреки требованию русского)
+    effort_split: str = Field("medium", alias="LLM_EFFORT_SPLIT")
+    effort_subsplit: str = Field("medium", alias="LLM_EFFORT_SUBSPLIT")
+    effort_render: str = Field("medium", alias="LLM_EFFORT_RENDER")
 
     @property
     def split_models(self) -> list[str]:
@@ -68,15 +70,16 @@ class FramesConfig(BaseSettings):
         "google/gemini-3.1-flash-lite,google/gemini-3.5-flash,google/gemini-3-flash-preview",
         alias="LLM_MODELS_VIDEO_SLIDES",
     )
-    effort: str = Field("low", alias="LLM_EFFORT_VIDEO_SLIDES")
+    effort: str = Field("medium", alias="LLM_EFFORT_VIDEO_SLIDES")
     # Классификация режимов — 1-2 вызова на лекцию, но её решения (тип, bbox,
-    # board_kind) самые нагруженные: тяжёлая модель + medium почти бесплатны
-    # и снижают недетерминизм. QC остаётся на дешёвом списке выше.
+    # board_kind) самые нагруженные: тяжёлая модель + high почти бесплатны.
+    # На medium модель недетерминированно путала слайды с доской (реальный
+    # кейс: ч/б board-рендер слайдовых сегментов). QC — на дешёвом списке выше.
     classify_models_raw: str = Field(
         "google/gemini-3.5-flash,google/gemini-3.1-flash-lite,google/gemini-3-flash-preview",
         alias="LLM_MODELS_FRAMES_CLASSIFY",
     )
-    classify_effort: str = Field("medium", alias="LLM_EFFORT_FRAMES_CLASSIFY")
+    classify_effort: str = Field("high", alias="LLM_EFFORT_FRAMES_CLASSIFY")
 
     @property
     def models(self) -> list[str]:

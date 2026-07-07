@@ -104,9 +104,31 @@ def test_frames_config_defaults(monkeypatch):
     cfg = AppConfig()
     assert cfg.frames.enabled is True
     assert cfg.frames.models[0] == "google/gemini-3.1-flash-lite"
-    # Классификация режимов — на тяжёлой модели с бóльшим effort (1-2 вызова)
+    # Классификация режимов — на тяжёлой модели с бóльшим effort (1-2 вызова);
+    # high: её решения самые нагруженные, а на medium модель недетерминированно
+    # путала слайды с доской (ч/б board-рендер на слайдовых лекциях)
     assert cfg.frames.classify_models[0] == "google/gemini-3.5-flash"
-    assert cfg.frames.classify_effort == "medium"
+    assert cfg.frames.classify_effort == "high"
+
+
+def test_effort_defaults_medium_for_content_stages(monkeypatch):
+    # Стадии, отвечающие за качество текста конспекта, на low эпизодически
+    # игнорируют инструкции промпта (реальный кейс — английские заголовки и
+    # секции вопреки требованию русского) → дефолт medium
+    for k, v in _env().items():
+        monkeypatch.setenv(k, v)
+    for key in (
+        "LLM_EFFORT_SPLIT",
+        "LLM_EFFORT_SUBSPLIT",
+        "LLM_EFFORT_RENDER",
+        "LLM_EFFORT_VIDEO_SLIDES",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    cfg = AppConfig()
+    assert cfg.llm.effort_split == "medium"
+    assert cfg.llm.effort_subsplit == "medium"
+    assert cfg.llm.effort_render == "medium"
+    assert cfg.frames.effort == "medium"
 
 
 def test_frames_models_split_into_list(monkeypatch):

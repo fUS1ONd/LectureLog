@@ -17,5 +17,5 @@ def test_llm_config_effort_per_stage_defaults(monkeypatch):
     assert cfg.effort_split in ("low", "medium", "high")
     assert cfg.effort_render in ("low", "medium", "high")
     # усиленная проверка: конкретный дефолт, а не просто принадлежность множеству
-    assert cfg.effort_split == "low"
-    assert cfg.effort_render == "low"
+    assert cfg.effort_split == "medium"
+    assert cfg.effort_render == "medium"
