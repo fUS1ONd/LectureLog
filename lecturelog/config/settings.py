@@ -76,7 +76,7 @@ class FramesConfig(BaseSettings):
     # На medium модель недетерминированно путала слайды с доской (реальный
     # кейс: ч/б board-рендер слайдовых сегментов). QC — на дешёвом списке выше.
     classify_models_raw: str = Field(
-        "google/gemini-3.5-flash,google/gemini-3.1-flash-lite,google/gemini-3-flash-preview",
+        "google/gemini-3.5-flash,google/gemini-3-flash-preview,google/gemini-3.1-flash-lite",
         alias="LLM_MODELS_FRAMES_CLASSIFY",
     )
     classify_effort: str = Field("high", alias="LLM_EFFORT_FRAMES_CLASSIFY")
