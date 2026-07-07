@@ -348,3 +348,42 @@ async def test_document_slides_still_win_over_video_frames(tmp_path):
     assert structurizer.slide_images_arg == [doc_item.path]
     seen = [stage for stage, _ in repo.stages]
     assert PipelineStage.VIDEO_SLIDES not in seen
+
+
+@pytest.mark.asyncio
+async def test_video_frames_markers_placed_into_section_content(tmp_path):
+    # После привязки кадров пайплайн расставляет маркеры <!-- slide:N -->
+    # внутри content секции (placement, дизайн 2026-07-07).
+    repo = InMemoryRepo()
+    task = Task(task_id="v6", source_kind="video_file")
+    await repo.create(task)
+    sec = Section(
+        title="s",
+        start="0:00",
+        end="5:00",
+        content="Абзац раз.\n\nАбзац два.",
+        slide_indices=[],
+    )
+    topics = [Topic(title="T", start="0:00", end="5:00", sections=[sec], slide_indices=[])]
+
+    # ts=280 из 300 c -> второй абзац
+    frame = SlideImage(path=Path("/work/frames/f1.jpg"), timestamp=280.0, caption="Слайд")
+    service = _service(
+        repo,
+        FakeIngestor(),
+        FakeTranscriber(),
+        FakeStructurizer(topics),
+        RecordingCutter("audio"),
+        RecordingCutter("video"),
+        FakeExporter(),
+    )
+    await service.run(
+        task=task,
+        source=VideoFileSource(path=tmp_path / "v.mp4"),
+        slide_provider=None,
+        work_dir=tmp_path,
+        video_slide_provider_factory=lambda v, s: FakeFrameProvider(frames=[frame]),
+    )
+
+    assert (await repo.get("v6")).status == TaskStatus.DONE
+    assert sec.content == "Абзац раз.\n\nАбзац два.\n\n<!-- slide:1 -->"

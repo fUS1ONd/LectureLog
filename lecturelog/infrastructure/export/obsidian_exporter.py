@@ -106,15 +106,25 @@ class ObsidianExporter(Exporter):
                         lines.append(f"![[{media_rel}]]")
                 lines.append("")
 
+                # Кадры с маркером <!-- slide:N --> встают инлайн в текст;
+                # без маркера (документные слайды, старые данные) — блоком
+                # перед контентом, как раньше.
+                content = section.content
                 for slide_idx in section.slide_indices:
                     pos = slide_idx - 1
-                    if 0 <= pos < len(slide_targets):
-                        rel = slide_targets[pos].relative_to(output_root).as_posix()
-                        alt = slide_images[pos].caption or f"Слайд {slide_idx}"
-                        lines.append(f"![{alt}]({rel})")
+                    if not 0 <= pos < len(slide_targets):
+                        continue
+                    rel = slide_targets[pos].relative_to(output_root).as_posix()
+                    alt = slide_images[pos].caption or f"Слайд {slide_idx}"
+                    image_line = f"![{alt}]({rel})"
+                    marker = f"<!-- slide:{slide_idx} -->"
+                    if marker in content:
+                        content = content.replace(marker, image_line)
+                    else:
+                        lines.append(image_line)
                         lines.append("")
 
-                lines.append(section.content.strip())
+                lines.append(content.strip())
                 lines.append("")
 
                 global_section_idx += 1
