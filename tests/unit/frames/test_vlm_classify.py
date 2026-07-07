@@ -57,7 +57,7 @@ async def test_classify_accepts_bare_json_array_for_robustness():
         FakeLlm([resp]),
         ["m"],
         "low",
-        [Regime(0, 60, "slides")],
+        [Regime(0, 60, "other")],
         [_thumb()],
         micro_rate=[0.0],
         tuning=FramesTuning(),
@@ -134,6 +134,36 @@ async def test_tie_breaker_slides_with_code_screenshot():
         on_usage=None,
     )
     assert out[0].kind == "slides"
+
+
+async def test_tie_breaker_slides_misread_as_board():
+    # VLM говорит board (белый слайд с тёмным текстом похож на маркерную доску),
+    # но временнáя сигнатура — плато слайдов, а не накопление письма → остаётся
+    # slides. Иначе слайды уходят в board-рендер (ч/б + ghosting фоновой модели).
+    resp = json.dumps(
+        {
+            "results": [
+                {
+                    "idx": 1,
+                    "type": "board",
+                    "content_bbox": [0.1, 0.1, 0.8, 0.8],
+                    "board_kind": "marker",
+                },
+            ]
+        }
+    )
+    out = await classify_regimes(
+        FakeLlm([resp]),
+        ["m"],
+        "low",
+        [Regime(0, 60, "slides")],
+        [_thumb()],
+        micro_rate=[0.0],
+        tuning=FramesTuning(),
+        on_usage=None,
+    )
+    assert out[0].kind == "slides"
+    assert out[0].board_kind == "none"  # без board-рендера
 
 
 async def test_implausible_bbox_falls_back_to_none():

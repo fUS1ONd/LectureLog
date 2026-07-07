@@ -113,10 +113,17 @@ async def classify_regimes(
         vlm_kind = str(v.get("type", regime.kind))
         if vlm_kind in ("code", "terminal") and micro_rate[i] < 0.2:
             vlm_kind = regime.kind  # временнáя сигнатура — тай-брейкер
+        if vlm_kind == "board" and regime.kind == "slides":
+            # Белый слайд с тёмным текстом внешне неотличим от маркерной доски,
+            # но доска даёт накопление письма, а не плато слайдов. Ошибка в эту
+            # сторону дорогая: board-рендер выдаёт ч/б кадр с ghosting'ом.
+            vlm_kind = regime.kind
         regime.kind = vlm_kind
         regime.bbox = _valid_bbox(v.get("content_bbox"))
         bk = str(v.get("board_kind", "none"))
         regime.board_kind = bk if bk in ("chalk", "marker") else "none"
+        if regime.kind != "board":
+            regime.board_kind = "none"
     return regimes
 
 
