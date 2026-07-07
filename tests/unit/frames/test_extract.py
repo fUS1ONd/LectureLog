@@ -38,7 +38,13 @@ def test_render_candidates_formats(tmp_path):
     assert frames[0].timestamp == 5.0
 
 
-def test_render_board_from_model_snapshot(tmp_path):
+def test_render_board_candidate_as_raw_color_frame(tmp_path):
+    # Board-рендер (фоновая модель + ч/б cleanup) ЗАМОРОЖЕН до бенч-набора с
+    # реальными досками: ложный «board» на слайдах давал ч/б кадры с ghosting'ом,
+    # а калибровать защиту не на чем. Кандидаты board рендерятся обычным цветным
+    # стопкадром; тайминги от board-политики (ink-плато) при этом сохраняются.
+    import cv2
+
     video = write_video(
         board_frames(write_secs=20, erase_at=None, total_secs=30), tmp_path / "v.mp4"
     )
@@ -53,4 +59,6 @@ def test_render_board_from_model_snapshot(tmp_path):
         )
     ]
     frames = render_candidates(video, cands, tmp_path / "out", FramesTuning())
-    assert len(frames) == 1 and frames[0].path.suffix == ".png"
+    assert len(frames) == 1 and frames[0].path.suffix == ".jpg"
+    img = cv2.imread(str(frames[0].path))
+    assert img is not None and img.ndim == 3  # цветной сырой кадр, не ч/б модель

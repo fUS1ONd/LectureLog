@@ -89,14 +89,13 @@ def render_candidates(
 def _render_one(
     video: Path, cand: Candidate, ts: float, out_dir: Path, idx: int, tuning: FramesTuning
 ) -> SlideImage:
-    if cand.source == "board_model":
-        kind = cand.regime.board_kind if cand.regime else "chalk"
-        img = whiteboard_cleanup(_rebuild_board_fullres(video, cand, tuning), kind)
-        path = out_dir / f"frame-{idx:02d}-board.png"
-        cv2.imwrite(str(path), img)
-        return SlideImage(path=path, timestamp=ts)
+    # Board-рендер (фоновая модель + ч/б cleanup) ЗАМОРОЖЕН до бенч-набора с
+    # реальными досками: ложная классификация «board» на слайдовых лекциях
+    # давала ч/б кадры с ghosting'ом, а калибровать доп. защиту без реальных
+    # доско-лекций не на чем. Кандидаты board (их тайминги от ink-плато ценны)
+    # рендерятся обычным цветным стопкадром — читаемо и для настоящей доски.
 
-    # Рендер — в цвете: серый декод остаётся только для анализа и board-модели
+    # Рендер — в цвете: серый декод остаётся только для анализа сигналов
     window = decode_window_bgr(video, ts, tuning.seek_window_s)
     img = sharpest_frame(window) if window else None
     if img is None:
