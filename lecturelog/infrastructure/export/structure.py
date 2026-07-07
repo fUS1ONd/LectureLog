@@ -55,17 +55,22 @@ def build_structure(
                     "key": result_key(media_targets[global_idx], output_root, task_id),
                 }
 
+            # slide_nums[i] соответствует slide_keys[i] — глобальный номер кадра,
+            # тот же N, что в маркерах <!-- slide:N --> внутри content_md.
             slide_keys: list[str] = []
+            slide_nums: list[int] = []
             for slide_idx in section.slide_indices:
                 pos = slide_idx - 1  # slide_indices 1-based
                 if 0 <= pos < len(slide_targets):
                     slide_keys.append(result_key(slide_targets[pos], output_root, task_id))
+                    slide_nums.append(slide_idx)
 
             subtopics.append(
                 {
                     "title": section.title,
                     "media": media,
                     "slide_keys": slide_keys,
+                    "slide_nums": slide_nums,
                     "content_md": section.content,
                 }
             )

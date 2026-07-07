@@ -34,6 +34,7 @@ from lecturelog.domain.ports import (
 from lecturelog.infrastructure.export.structure import build_structure, result_key
 from lecturelog.infrastructure.export.zip_utils import zip_dir
 from lecturelog.infrastructure.frames.binding import bind_frames_to_sections
+from lecturelog.infrastructure.frames.placement import place_slides_in_sections
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +283,9 @@ class PipelineService:
             if video_frames:
                 # G: привязка кадров к секциям по таймкодам + монотонизация
                 bind_frames_to_sections(video_frames, topics)
+                # Маркеры <!-- slide:N --> внутри content секций — позиция
+                # кадра между абзацами (взвешенная пропорция по timestamp)
+                place_slides_in_sections(video_frames, topics)
                 slide_items = video_frames
 
             sections = [s for t in topics for s in t.sections]

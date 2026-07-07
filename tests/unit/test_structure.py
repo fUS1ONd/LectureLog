@@ -158,3 +158,36 @@ def test_build_structure_slide_index_out_of_range_skipped(tmp_path):
     assert tree["sections"][0]["subtopics"][0]["slide_keys"] == [
         "results/s4/output/slides/slide-01.png"
     ]
+    # slide_nums выравнены с slide_keys: 99 тоже пропущен.
+    assert tree["sections"][0]["subtopics"][0]["slide_nums"] == [1]
+
+
+def test_build_structure_slide_nums_parallel_to_keys(tmp_path):
+    # slide_nums[i] — глобальный номер кадра из маркеров <!-- slide:N -->,
+    # соответствует slide_keys[i]; web сопоставляет маркер с URL по нему.
+    output_root = tmp_path / "output"
+    media_targets, slide_targets = _targets(output_root, "audio", 1, 3)
+    topics = [
+        Topic(
+            title="Т",
+            start="0",
+            end="1",
+            sections=[
+                Section(title="С", start="0", end="1", content="c", slide_indices=[2, 3]),
+            ],
+        ),
+    ]
+    tree = build_structure(
+        topics=topics,
+        media_targets=media_targets,
+        slide_targets=slide_targets,
+        output_root=output_root,
+        task_id="s5",
+        media_kind="audio",
+    )
+    st = tree["sections"][0]["subtopics"][0]
+    assert st["slide_nums"] == [2, 3]
+    assert st["slide_keys"] == [
+        "results/s5/output/slides/slide-02.png",
+        "results/s5/output/slides/slide-03.png",
+    ]
