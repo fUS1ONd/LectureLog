@@ -6,33 +6,22 @@ from pathlib import Path
 from lecturelog.domain.models import Section
 from lecturelog.domain.ports import MediaCutter
 from lecturelog.infrastructure.media.ffmpeg_utils import ffmpeg_timestamp
-
-# Известные видеоконтейнеры, чьё расширение наследует фрагмент.
-_KNOWN_CONTAINERS = {".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi"}
-# Контейнеры, для которых -movflags +faststart безопасен (H.264/AAC).
-_MP4_SAFE_SUFFIXES = {".mp4", ".m4v", ".mov"}
-
-
-def _fragment_suffix_and_flags(video_suffix: str) -> tuple[str, list[str]]:
-    """По расширению исходного видео вернуть (суффикс фрагмента, extra-флаги ffmpeg)."""
-    suffix = video_suffix.lower()
-    if suffix not in _KNOWN_CONTAINERS:
-        suffix = ".mp4"
-    extra_flags: list[str] = []
-    if suffix in _MP4_SAFE_SUFFIXES:
-        extra_flags = ["-movflags", "+faststart"]
-    return suffix, extra_flags
+from lecturelog.infrastructure.srt import parse_srt_time
 
 
 class FfmpegVideoCutter(MediaCutter):
     """Реализация порта MediaCutter: нарезка видео по секциям через ffmpeg.
 
-    Использует -c copy для скорости. Если на границе нет keyframe — фрагмент
-    может начинаться чуть позже start; для нашей задачи это допустимо.
+    Фрагменты перекодируются (H.264/AAC), а не копируются: -c copy при разрезе
+    в середине GOP оставляет во фрагменте видео-преролл с discard-флагами от
+    предыдущего keyframe (до GOP-длины), тогда как аудио-преролл ~1 c —
+    синхронность тогда держится только на mp4 edit list, который часть плееров
+    игнорирует → рассинхрон картинки и звука. Перекодирование даёт точные
+    границы, старт с keyframe и синк во всех плеерах; заодно нормализует
+    VP9/Opus-исходники в универсально играемый H.264/AAC mp4.
 
-    Контейнер фрагмента наследуется от исходного видео (mp4/webm/mkv), чтобы
-    избежать ошибки "codec not currently supported in container" при перепаковке
-    VP9/Opus → mp4.
+    -ss стоит до -i: быстрый входной seek по keyframe + точный декод до нужного
+    кадра, вместо декодирования всего префикса файла.
     """
 
     async def cut(
@@ -44,22 +33,47 @@ class FfmpegVideoCutter(MediaCutter):
         output_dir.mkdir(parents=True, exist_ok=True)
         result: list[Path] = []
 
-        suffix, extra_flags = _fragment_suffix_and_flags(source_path.suffix)
-
         for idx, section in enumerate(sections):
-            target = output_dir / f"section_{idx + 1:02d}{suffix}"
+            target = output_dir / f"section_{idx + 1:02d}.mp4"
+            duration = max(0.0, parse_srt_time(section.end) - parse_srt_time(section.start))
             proc = await asyncio.create_subprocess_exec(
                 "ffmpeg",
                 "-y",
                 "-ss",
                 ffmpeg_timestamp(section.start),
-                "-to",
-                ffmpeg_timestamp(section.end),
                 "-i",
                 str(source_path),
-                "-c",
-                "copy",
-                *extra_flags,
+                # -t (длительность выхода), а не -to: после входного -ss удобнее
+                # не смешивать абсолютную шкалу исходника со шкалой фрагмента
+                "-t",
+                f"{duration:.3f}",
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0?",  # аудио опционально — немое видео не должно валить нарезку
+                "-sn",
+                "-dn",
+                # чётные размеры обязательны для yuv420p; vfr не плодит дропы/дубли
+                "-vf",
+                "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+                "-fps_mode",
+                "vfr",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "22",  # 23 подмыливает мелкий текст слайдов
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-ar",
+                "48000",
+                "-af",
+                "aresample=async=1:first_pts=0",
+                "-movflags",
+                "+faststart",
                 str(target),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
