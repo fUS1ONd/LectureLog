@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup ffmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v3
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
       - name: Setup Python
         uses: actions/setup-python@v5
