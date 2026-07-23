@@ -304,6 +304,24 @@ def test_transcript_srt_ready(client, repo, tmp_path):
     assert r.headers["content-type"].startswith("application/x-subrip")
 
 
+def test_done_transcript_is_downloaded_from_result_storage(client, repo):
+    repo.tasks["t"] = Task(
+        task_id="t",
+        source_kind="audio",
+        status=TaskStatus.DONE,
+        stage=PipelineStage.EXPORT,
+        result_path="results/t/",
+    )
+    client._storage.objects["results/t/output/transcript.srt"] = (
+        b"1\n00:00:00,000 --> 00:00:01,000\nhi\n"
+    )
+
+    r = client.get("/api/v1/tasks/t/transcript?format=txt")
+
+    assert r.status_code == 200
+    assert r.text == "hi"
+
+
 def test_result_not_ready_404(client, repo):
     repo.tasks["t"] = Task(task_id="t", source_kind="audio")
     r = client.get("/api/v1/tasks/t/result")

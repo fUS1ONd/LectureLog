@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import traceback
 from collections.abc import Callable
 from pathlib import Path
@@ -311,6 +312,11 @@ class PipelineService:
                 media_kind=media_kind,
             )
             output_root = export_result.output_root
+
+            # После DONE локальный work_dir удаляется worker-ом. Сохраняем SRT
+            # рядом с экспортом, чтобы /transcript не зависел от scratch.
+            if srt_path.is_file():
+                shutil.copy2(srt_path, output_root / "transcript.srt")
 
             # structure.json — нейтральное дерево с РЕАЛЬНЫМИ ключами MinIO.
             # Кладём в output_root, чтобы он попал и в пофайловую заливку, и в
