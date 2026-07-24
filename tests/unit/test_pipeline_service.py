@@ -117,6 +117,7 @@ async def test_output_uploaded_as_objects_and_structure_written(tmp_path):
     repo = InMemoryRepo()
     task = Task(task_id="s1", source_kind="audio")
     await repo.create(task)
+    (tmp_path / "t.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n", encoding="utf-8")
     storage = FakeStorage()
     service = PipelineService(
         repository=repo,
@@ -141,6 +142,7 @@ async def test_output_uploaded_as_objects_and_structure_written(tmp_path):
     # Объекты залиты пофайлово; единый zip больше не хранится.
     assert "results/s1/output/конспект.md" in keys
     assert "results/s1/output/structure.json" in keys
+    assert "results/s1/output/transcript.srt" in keys
     assert "results/s1/result.zip" not in keys
 
     # ХРУПКИЙ ИНВАРИАНТ: ключи в structure.json совпадают с реально залитыми объектами.
@@ -201,6 +203,7 @@ async def test_audio_pipeline_completes_and_sets_done(tmp_path):
     repo = InMemoryRepo()
     task = Task(task_id="t1", source_kind="audio")
     await repo.create(task)
+    (tmp_path / "t.srt").write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n", encoding="utf-8")
     sec = Section(title="s", start="0:00", end="5:00", content="c", slide_indices=[])
     topics = [Topic(title="T", start="0:00", end="5:00", sections=[sec], slide_indices=[])]
 
@@ -226,6 +229,7 @@ async def test_audio_pipeline_completes_and_sets_done(tmp_path):
         names = zf.namelist()
     assert "output/конспект.md" in names
     assert "output/structure.json" in names
+    assert "output/transcript.srt" in names
 
 
 @pytest.mark.asyncio

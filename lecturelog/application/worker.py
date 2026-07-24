@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +13,8 @@ from lecturelog.domain.models import Task
 from lecturelog.domain.ports import SlideProvider
 
 logger = logging.getLogger(__name__)
+
+_TASK_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 
 
 @dataclass
@@ -38,17 +42,48 @@ class PipelineWorker:
     async def enqueue(self, job: PipelineJob) -> None:
         await self._queue.put(job)
 
+    async def _cleanup_completed_work_dir(self, job: PipelineJob, result_path: str) -> None:
+        """Best-effort удалить scratch только после подтверждённого S3-результата."""
+        if result_path != f"results/{job.task_id}/":
+            return
+        if not _TASK_ID_RE.fullmatch(job.task_id) or job.work_dir.name != job.task_id:
+            logger.error(
+                "Воркер: небезопасный work_dir для cleanup task=%s path=%s",
+                job.task_id,
+                job.work_dir,
+            )
+            return
+        if job.work_dir.is_symlink():
+            logger.error("Воркер: symlink work_dir не удалён task=%s", job.task_id)
+            return
+
+        try:
+            await asyncio.to_thread(shutil.rmtree, job.work_dir)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            # Cleanup не должен менять уже сохранённую DONE-задачу на FAILED.
+            logger.warning(
+                "Воркер: не удалось очистить work_dir task=%s path=%s: %s",
+                job.task_id,
+                job.work_dir,
+                exc,
+            )
+        else:
+            logger.info("Воркер: очищен work_dir завершённой задачи task=%s", job.task_id)
+
     async def _consume(self) -> None:
         while True:
             job = await self._queue.get()
             try:
-                await self._service.run(
+                result_path = await self._service.run(
                     task=job.task,
                     source=job.source,
                     slide_provider=job.slide_provider,
                     work_dir=job.work_dir,
                     video_slide_provider_factory=job.video_slide_provider_factory,
                 )
+                await self._cleanup_completed_work_dir(job, result_path)
             except Exception as exc:  # задача уже помечена FAILED в repo
                 logger.warning("Воркер: задача %s завершилась ошибкой: %s", job.task_id, exc)
             finally:

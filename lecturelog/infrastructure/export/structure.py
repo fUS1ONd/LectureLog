@@ -15,6 +15,15 @@ def result_key(path: Path, output_root: Path, task_id: str) -> str:
     return f"results/{task_id}/output/{rel}"
 
 
+def transcript_result_key(task_id: str) -> str:
+    """Ключ SRT в постоянном результате задачи.
+
+    После успешной обработки worker удаляет локальный workspace, поэтому
+    endpoint транскрипта для завершённой задачи читает этот объект из MinIO.
+    """
+    return f"results/{task_id}/output/transcript.srt"
+
+
 def build_structure(
     topics: list[Topic],
     media_targets: list[Path],

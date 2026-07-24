@@ -35,6 +35,7 @@ from lecturelog.application.use_cases.get_result import GetResultUseCase
 from lecturelog.application.use_cases.get_status import GetStatusUseCase
 from lecturelog.application.use_cases.get_transcript import GetTranscriptUseCase
 from lecturelog.application.worker import PipelineJob
+from lecturelog.domain.enums import TaskStatus
 from lecturelog.domain.exceptions import ResultNotReady, TranscribeFailed
 from lecturelog.domain.media_source import (
     AudioSource,
@@ -42,6 +43,7 @@ from lecturelog.domain.media_source import (
     VideoFileSource,
     VideoUrlSource,
 )
+from lecturelog.infrastructure.export.structure import transcript_result_key
 from lecturelog.infrastructure.export.zip_utils import zip_dir
 from lecturelog.infrastructure.media.url_utils import is_url
 from lecturelog.infrastructure.slides.document_provider import DocumentSlideProvider
@@ -322,6 +324,7 @@ async def get_task_transcript(
     task_id: str,
     format: str = "srt",
     repository=Depends(get_repository),
+    storage=Depends(get_storage),
     work_dir: Path = Depends(get_work_dir),
 ):
     # Валидация формата заранее, до проверки статуса задачи.
@@ -346,6 +349,31 @@ async def get_task_transcript(
             status_code=409,
             content={"error": "transcribe_failed", "detail": task.error},
         )
+
+    if not result.ready and task.status == TaskStatus.DONE:
+        # Успешная задача уже очищена worker-ом: SRT хранится в MinIO вместе с
+        # результатом. Для старых задач с ещё живым scratch сработал путь выше.
+        tmp_dir = work_dir / "results_tmp" / task_id / uuid4().hex
+        srt_path = tmp_dir / "transcript.srt"
+        try:
+            await storage.download_file(transcript_result_key(task_id), srt_path)
+        except Exception:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        else:
+            if format == "srt":
+                return FileResponse(
+                    path=srt_path,
+                    filename="transcript.srt",
+                    media_type="application/x-subrip",
+                    background=BackgroundTask(lambda: shutil.rmtree(tmp_dir, ignore_errors=True)),
+                )
+            content = srt_to_plain_text(srt_path.read_text(encoding="utf-8"))
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return Response(
+                content=content,
+                media_type="text/plain; charset=utf-8",
+                headers={"Content-Disposition": 'attachment; filename="transcript.txt"'},
+            )
 
     if not result.ready:
         return JSONResponse(
