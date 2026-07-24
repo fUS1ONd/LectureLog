@@ -29,7 +29,63 @@ def test_groq_keys_parsed_and_trimmed(monkeypatch):
     for k, v in _env().items():
         monkeypatch.setenv(k, v)
     cfg = AppConfig()
-    assert cfg.groq.keys == ["g1", "g2"]
+    assert cfg.transcribe.groq_keys == ["g1", "g2"]
+
+
+def test_deepgram_provider_needs_only_deepgram_key(monkeypatch):
+    for k, v in _env(
+        TRANSCRIBE_PROVIDER="deepgram",
+        GROQ_API_KEYS="",
+        DEEPGRAM_API_KEY="dg-secret",
+    ).items():
+        monkeypatch.setenv(k, v)
+    cfg = AppConfig()
+    assert cfg.transcribe.provider == "deepgram"
+    assert cfg.transcribe.deepgram_model == "nova-3"
+    assert cfg.transcribe.deepgram_detect_language is False
+    assert cfg.transcribe.deepgram_api_key.get_secret_value() == "dg-secret"
+    assert "dg-secret" not in repr(cfg.transcribe)
+
+
+def test_deepgram_language_detection_reads_boolean(monkeypatch):
+    for k, v in _env(
+        TRANSCRIBE_PROVIDER="deepgram",
+        DEEPGRAM_API_KEY="dg-secret",
+        DEEPGRAM_DETECT_LANGUAGE="true",
+    ).items():
+        monkeypatch.setenv(k, v)
+    assert AppConfig().transcribe.deepgram_detect_language is True
+
+
+def test_deepgram_provider_rejects_empty_key(monkeypatch):
+    for k, v in _env(
+        TRANSCRIBE_PROVIDER="deepgram",
+        GROQ_API_KEYS="",
+        DEEPGRAM_API_KEY="",
+    ).items():
+        monkeypatch.setenv(k, v)
+    with pytest.raises(Exception, match="DEEPGRAM_API_KEY"):  # noqa: B017
+        AppConfig()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://api.deepgram.com",
+        "https://evil.example",
+        "https://user@api.deepgram.com",
+        "https://api.deepgram.com?x=1",
+    ],
+)
+def test_deepgram_base_url_rejects_unsafe_endpoints(monkeypatch, url):
+    for k, v in _env(
+        TRANSCRIBE_PROVIDER="deepgram",
+        DEEPGRAM_API_KEY="dg-secret",
+        DEEPGRAM_BASE_URL=url,
+    ).items():
+        monkeypatch.setenv(k, v)
+    with pytest.raises(Exception, match="DEEPGRAM_BASE_URL"):  # noqa: B017
+        AppConfig()
 
 
 def test_llm_models_split_into_lists(monkeypatch):
