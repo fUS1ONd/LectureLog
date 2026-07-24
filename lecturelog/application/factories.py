@@ -1,9 +1,17 @@
 from __future__ import annotations
 
-from lecturelog.config.settings import S3Config
+from lecturelog.config.settings import S3Config, TranscribeConfig
 from lecturelog.domain.media_source import MediaSource, is_video_source
-from lecturelog.domain.ports import MediaCutter, SlideProvider, Storage, WebhookNotifier
+from lecturelog.domain.ports import (
+    MediaCutter,
+    SlideProvider,
+    Storage,
+    Transcriber,
+    WebhookNotifier,
+)
 from lecturelog.infrastructure.storage.s3_storage import S3Storage
+from lecturelog.infrastructure.transcribe.deepgram_transcriber import DeepgramTranscriber
+from lecturelog.infrastructure.transcribe.groq_transcriber import GroqTranscriber
 from lecturelog.infrastructure.webhook.http_notifier import HttpWebhookNotifier
 
 
@@ -44,6 +52,19 @@ def storage_factory(s3: S3Config) -> Storage:
         secret_key=s3.secret_key,
         region=s3.region,
         default_expiry=s3.presign_expiry,
+    )
+
+
+def transcriber_factory(config: TranscribeConfig) -> Transcriber:
+    if config.provider == "groq":
+        return GroqTranscriber(groq_api_keys=config.groq_keys)
+    assert config.deepgram_api_key is not None
+    return DeepgramTranscriber(
+        api_key=config.deepgram_api_key.get_secret_value(),
+        base_url=config.deepgram_base_url,
+        model=config.deepgram_model,
+        language=config.deepgram_language,
+        utt_split=config.deepgram_utt_split,
     )
 
 

@@ -4,10 +4,13 @@ from lecturelog.application.factories import (
     cutter_factory,
     slide_provider_factory,
     storage_factory,
+    transcriber_factory,
 )
-from lecturelog.config.settings import S3Config
+from lecturelog.config.settings import S3Config, TranscribeConfig
 from lecturelog.domain.media_source import AudioSource, VideoFileSource
 from lecturelog.infrastructure.storage.s3_storage import S3Storage
+from lecturelog.infrastructure.transcribe.deepgram_transcriber import DeepgramTranscriber
+from lecturelog.infrastructure.transcribe.groq_transcriber import GroqTranscriber
 
 
 class _A:  # маркеры, чтобы различать выбранную реализацию
@@ -77,3 +80,17 @@ def test_storage_factory_no_public_keeps_presign_off(monkeypatch):
     cfg = _s3_config(monkeypatch, public=None)
     storage = storage_factory(cfg)
     assert storage._public_endpoint is None
+
+
+def test_transcriber_factory_selects_groq():
+    config = TranscribeConfig(_env_file=None, GROQ_API_KEYS="g1")
+    assert isinstance(transcriber_factory(config), GroqTranscriber)
+
+
+def test_transcriber_factory_selects_deepgram():
+    config = TranscribeConfig(
+        _env_file=None,
+        TRANSCRIBE_PROVIDER="deepgram",
+        DEEPGRAM_API_KEY="secret",
+    )
+    assert isinstance(transcriber_factory(config), DeepgramTranscriber)

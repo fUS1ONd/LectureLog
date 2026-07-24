@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 import time
 from pathlib import Path
@@ -10,6 +9,18 @@ from typing import Any
 import httpx
 
 from lecturelog.domain.ports import ProgressCallback, Transcriber, UsageCallback
+from lecturelog.infrastructure.transcribe.common import (
+    emit_progress as _emit_progress,
+)
+from lecturelog.infrastructure.transcribe.common import (
+    emit_usage as _emit_usage,
+)
+from lecturelog.infrastructure.transcribe.common import (
+    format_srt_timestamp as _format_srt_timestamp,
+)
+from lecturelog.infrastructure.transcribe.common import (
+    probe_audio_seconds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,15 +67,6 @@ class GroqKeyPool:
         return self._keys.index(key)
 
 
-def _format_srt_timestamp(seconds: float) -> str:
-    total_ms = max(0, int(round(seconds * 1000)))
-    hours = total_ms // 3_600_000
-    minutes = (total_ms % 3_600_000) // 60_000
-    secs = (total_ms % 60_000) // 1000
-    millis = total_ms % 1000
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-
-
 def _build_srt_from_words(words: list[dict[str, Any]], words_per_caption: int = 7) -> str:
     if not words:
         return ""
@@ -89,22 +91,6 @@ def _build_srt_from_words(words: list[dict[str, Any]], words_per_caption: int = 
     return "\n".join(lines).strip()
 
 
-async def _emit_progress(on_progress: ProgressCallback | None, value: int) -> None:
-    if on_progress is None:
-        return
-    maybe_awaitable = on_progress(value)
-    if inspect.isawaitable(maybe_awaitable):
-        await maybe_awaitable
-
-
-async def _emit_usage(on_usage: UsageCallback | None, payload: dict) -> None:
-    if on_usage is None:
-        return
-    maybe_awaitable = on_usage(payload)
-    if inspect.isawaitable(maybe_awaitable):
-        await maybe_awaitable
-
-
 async def _probe_audio_seconds(audio_path: Path) -> int:
     """Длительность аудио через ffprobe (паттерн из VideoSlideProvider).
 
@@ -112,33 +98,7 @@ async def _probe_audio_seconds(audio_path: Path) -> int:
     ронять основную транскрибацию. При любом сбое (ffprobe отсутствует,
     ненулевой returncode, нечисловой вывод) возвращаем 0 и продолжаем работу.
     """
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "ffprobe",
-            "-v",
-            "quiet",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(audio_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        out, _ = await proc.communicate()
-        if proc.returncode != 0:
-            # ffprobe завершился с ошибкой — длительность считаем неизвестной (0)
-            logger.warning(
-                "ffprobe завершился с кодом %s, длительность аудио считаем равной 0",
-                proc.returncode,
-            )
-            return 0
-        return int(float(out.decode().strip()))
-    except (OSError, ValueError) as exc:
-        # OSError покрывает отсутствие ffprobe (FileNotFoundError),
-        # ValueError — нечисловой/пустой вывод. Usage best-effort: не падаем.
-        logger.warning("Не удалось определить длительность аудио через ffprobe: %s", exc)
-        return 0
+    return int(await probe_audio_seconds(audio_path))
 
 
 def _retry_delay(attempt: int) -> int:

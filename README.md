@@ -13,7 +13,7 @@ HTTP-сервис обработки лекций: на вход — лекци�
 
 1. **Приём медиа**: аудиофайл, видеофайл или URL видео (скачивается через yt-dlp);
    для видео извлекается аудиодорожка для транскрибации.
-2. **Транскрибация** аудио в SRT через Groq Whisper (нарезка на чанки, ротация ключей при rate limit).
+2. **Транскрибация** аудио в SRT через Groq Whisper или Deepgram Nova-3.
 3. **Слайды** — три источника: из приложенного PDF/PPTX (pymupdf + LibreOffice),
    автоматически из видеоряда через Gemini Vision, либо без слайдов (флаг `no_slides`).
 4. **Структуризация** транскрипта на темы и подтемы через Gemini, с привязкой слайдов.
@@ -85,7 +85,8 @@ Obsidian (Settings → Community plugins), иначе вместо плеера 
 
 ```bash
 cp .env.example .env
-# Заполните GROQ_API_KEYS, OPENROUTER_API_KEY, CORE_POSTGRES_PASSWORD,
+# Выберите TRANSCRIBE_PROVIDER, заполните ключ выбранного STT-провайдера,
+# OPENROUTER_API_KEY, CORE_POSTGRES_PASSWORD,
 # S3_ACCESS_KEY и S3_SECRET_KEY.
 docker compose up --build
 ```
@@ -141,7 +142,8 @@ chmod +x minio-init.sh
 docker network create lecturelog-shared || true
 ```
 
-Отредактируйте `.env`: задайте `GROQ_API_KEYS`, `OPENROUTER_API_KEY`,
+Отредактируйте `.env`: выберите `TRANSCRIBE_PROVIDER`, задайте ключ выбранного
+STT-провайдера, `OPENROUTER_API_KEY`,
 `CORE_POSTGRES_PASSWORD`, `S3_SECRET_KEY`, публичный `S3_PUBLIC_ENDPOINT` и общий
 с web `LECTURELOG_WEBHOOK_SECRET`. Для связки с web укажите:
 
@@ -327,7 +329,13 @@ python scripts/submit_task.py --base http://my-host:8000/api/v1 status <task_id>
 
 | Переменная             | Назначение                                                |
 | ---------------------- | --------------------------------------------------------- |
-| `GROQ_API_KEYS`        | Ключи Groq (через запятую), для транскрибации (см. раздел про лимиты бесплатных тиров). |
+| `TRANSCRIBE_PROVIDER`  | STT-провайдер: `groq` (по умолчанию) или `deepgram`. |
+| `GROQ_API_KEYS`        | Ключи Groq через запятую; обязательны только для провайдера `groq`. |
+| `DEEPGRAM_API_KEY`     | Ключ Deepgram; обязателен только для провайдера `deepgram`. |
+| `DEEPGRAM_BASE_URL`    | Официальный HTTPS endpoint Deepgram. |
+| `DEEPGRAM_MODEL`       | Модель Deepgram (по умолчанию `nova-3`). |
+| `DEEPGRAM_LANGUAGE`    | Язык Deepgram (по умолчанию `ru`). |
+| `DEEPGRAM_UTT_SPLIT`   | Порог паузы utterance в секундах (по умолчанию `0.8`). |
 | `OPENROUTER_API_KEY`   | Ключ OpenRouter; LLM-вызовы идут через BYOK Google AI Studio. |
 | `OPENROUTER_BASE_URL`  | Base URL OpenRouter (по умолчанию `https://openrouter.ai/api/v1`). |
 | `LLM_MODELS_*`         | Приоритетные списки моделей по этапам структуризации (fallback при 429). |
@@ -352,14 +360,15 @@ python scripts/submit_task.py --base http://my-host:8000/api/v1 status <task_id>
 
 ## Ключи API и лимиты бесплатных тиров
 
-Сервис рассчитан на работу на **бесплатных тарифах** Groq и Google AI Studio через
-OpenRouter BYOK. Для Groq можно указывать несколько ключей через запятую в
+Сервис поддерживает Groq и Deepgram для STT, а LLM вызывает через OpenRouter BYOK.
+Для Groq можно указывать несколько ключей через запятую в
 `GROQ_API_KEYS`; LLM-вызовы используют один `OPENROUTER_API_KEY`, а fallback идёт
 по приоритетному списку моделей.
 
 Получить бесплатные ключи:
 
 - Groq — [console.groq.com/keys](https://console.groq.com/keys)
+- Deepgram — [console.deepgram.com](https://console.deepgram.com/)
 - Google AI Studio key для OpenRouter BYOK — [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
 ### Groq (транскрибация, Whisper large-v3)
@@ -370,6 +379,16 @@ OpenRouter BYOK. Для Groq можно указывать несколько к
 - Если все ключи временно заблокированы, запрос ждёт минимально необходимое время до
   освобождения ближайшего ключа.
 - Чем больше ключей — тем выше суммарная пропускная способность транскрибации.
+
+### Deepgram (транскрибация, Nova-3)
+
+- Задайте `TRANSCRIBE_PROVIDER=deepgram` и `DEEPGRAM_API_KEY`.
+- Файл отправляется одним потоковым запросом, без полной загрузки в память.
+- Каждый запрос содержит `mip_opt_out=true`; автоматического fallback на Groq нет.
+- Разрешены только официальные HTTPS endpoint'ы Deepgram. Дефолты: модель `nova-3`,
+  язык `ru`, `utt_split=0.8`.
+- Временные сетевые и серверные ошибки повторяются с backoff; неподдерживаемое или
+  повреждённое аудио классифицируется как `bad_input`.
 
 ### LLM через OpenRouter BYOK (структуризация и VLM)
 
@@ -399,7 +418,7 @@ pytest
 ```
 
 Юнит-тесты гоняют репозиторий на SQLite in-memory, а инфраструктурные зависимости
-(Groq/Gemini/ffmpeg) мокаются — реальные ключи и внешние сервисы для тестов не нужны.
+(Groq/Deepgram/LLM/ffmpeg) мокаются — реальные ключи и внешние сервисы для тестов не нужны.
 
 ## Линтер и форматтер
 
