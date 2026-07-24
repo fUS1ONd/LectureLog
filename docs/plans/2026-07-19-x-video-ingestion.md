@@ -4,9 +4,9 @@
 
 Ветка: `plan/x-video-ingestion`
 
-База: `origin/dev@77082c331c1cf00cdb0d706fa1b099a982a5ab4a`
+База реализации: `origin/dev@dadd025bc827572e4542a4045db52c93cc378a63`
 
-Worktree: `/tmp/lecturelog-x-video-plan`
+Worktree: `/root/lecturelog-core/.worktrees/x-video-ingestion`
 
 ## 1. Цель
 

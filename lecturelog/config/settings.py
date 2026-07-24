@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import cached_property, lru_cache
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BASE = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -115,6 +115,27 @@ class WorkerConfig(BaseSettings):
     max_concurrent_tasks: int = Field(2, alias="MAX_CONCURRENT_TASKS")
 
 
+class MediaConfig(BaseSettings):
+    model_config = _BASE
+    target_resolution: str = Field("720", alias="VIDEO_TARGET_RESOLUTION")
+
+    @field_validator("target_resolution")
+    @classmethod
+    def validate_target_resolution(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized == "best":
+            return normalized
+        try:
+            resolution = int(normalized)
+        except ValueError as exc:
+            raise ValueError(
+                "VIDEO_TARGET_RESOLUTION должен быть best или числом 144..4320"
+            ) from exc
+        if not 144 <= resolution <= 4320:
+            raise ValueError("VIDEO_TARGET_RESOLUTION должен быть в диапазоне 144..4320")
+        return str(resolution)
+
+
 class WebhookConfig(BaseSettings):
     # Оба поля опциональны: режим вебхука включается только при заданном callback_url.
     # Без URL движок работает автономно (поллинг-эндпоинты), поведение не меняется.
@@ -137,6 +158,7 @@ class AppConfig(BaseSettings):
             self.database,
             self.s3,
             self.worker,
+            self.media,
             self.webhook,
             self.frames,
         )
@@ -165,6 +187,11 @@ class AppConfig(BaseSettings):
     @cached_property
     def worker(self) -> WorkerConfig:
         return WorkerConfig()
+
+    @computed_field  # type: ignore[prop-decorator]
+    @cached_property
+    def media(self) -> MediaConfig:
+        return MediaConfig()
 
     @computed_field  # type: ignore[prop-decorator]
     @cached_property

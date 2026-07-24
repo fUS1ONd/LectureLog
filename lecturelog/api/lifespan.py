@@ -103,7 +103,10 @@ async def lifespan(app: FastAPI):
         structurizer=structurizer,
         audio_cutter=FfmpegAudioCutter(),
         video_cutter=FfmpegVideoCutter(),
-        ingestor=VideoIngestor(cookie_store=cookie_store),
+        ingestor=VideoIngestor(
+            cookie_store=cookie_store,
+            target_resolution=cfg.media.target_resolution,
+        ),
         exporter=ObsidianExporter(),
         progress_plan_factory=ProgressPlan.for_audio,
         webhook_notifier=notifier,

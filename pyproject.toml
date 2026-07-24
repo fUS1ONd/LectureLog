@@ -17,7 +17,7 @@ dependencies = [
     "google-genai>=0.3",
     "openai>=1.55",
     "pymupdf>=1.24",
-    "yt-dlp>=2024.12",
+    "yt-dlp[default]==2026.7.4",
     "numpy>=2.0",
     "opencv-python-headless>=4.10",
     "aioboto3>=13",

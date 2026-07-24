@@ -72,6 +72,15 @@ def test_video_url_returns_task_id(client):
     assert job.source.url == "https://youtu.be/abc"
 
 
+def test_x_video_url_uses_unchanged_task_contract(client):
+    url = "https://x.com/i/status/2078106556634124335"
+    r = client.post("/api/v1/tasks", data={"video_url": url})
+    assert r.status_code == 200
+    job = client._worker.jobs[-1]
+    assert job.source.kind == "video_url"
+    assert job.source.url == url
+
+
 def test_two_sources_still_400(client):
     r = client.post(
         "/api/v1/tasks",
