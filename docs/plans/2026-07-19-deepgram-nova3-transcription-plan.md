@@ -214,6 +214,7 @@ DEEPGRAM_API_KEY=
 DEEPGRAM_BASE_URL=https://api.deepgram.com
 DEEPGRAM_MODEL=nova-3
 DEEPGRAM_LANGUAGE=ru           # ru | multi; технически допускается любой поддержанный код
+DEEPGRAM_DETECT_LANGUAGE=false # true: определить доминирующий язык, language не отправлять
 DEEPGRAM_UTT_SPLIT=0.8
 ```
 

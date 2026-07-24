@@ -64,6 +64,7 @@ def transcriber_factory(config: TranscribeConfig) -> Transcriber:
         base_url=config.deepgram_base_url,
         model=config.deepgram_model,
         language=config.deepgram_language,
+        detect_language=config.deepgram_detect_language,
         utt_split=config.deepgram_utt_split,
     )
 

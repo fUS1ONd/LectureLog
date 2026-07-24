@@ -335,6 +335,7 @@ python scripts/submit_task.py --base http://my-host:8000/api/v1 status <task_id>
 | `DEEPGRAM_BASE_URL`    | Официальный HTTPS endpoint Deepgram. |
 | `DEEPGRAM_MODEL`       | Модель Deepgram (по умолчанию `nova-3`). |
 | `DEEPGRAM_LANGUAGE`    | Язык Deepgram (по умолчанию `ru`). |
+| `DEEPGRAM_DETECT_LANGUAGE` | Автоопределение доминирующего языка (`true`/`false`). При `true` фиксированный `DEEPGRAM_LANGUAGE` не отправляется. |
 | `DEEPGRAM_UTT_SPLIT`   | Порог паузы utterance в секундах (по умолчанию `0.8`). |
 | `OPENROUTER_API_KEY`   | Ключ OpenRouter; LLM-вызовы идут через BYOK Google AI Studio. |
 | `OPENROUTER_BASE_URL`  | Base URL OpenRouter (по умолчанию `https://openrouter.ai/api/v1`). |
@@ -387,6 +388,9 @@ python scripts/submit_task.py --base http://my-host:8000/api/v1 status <task_id>
 - Каждый запрос содержит `mip_opt_out=true`; автоматического fallback на Groq нет.
 - Разрешены только официальные HTTPS endpoint'ы Deepgram. Дефолты: модель `nova-3`,
   язык `ru`, `utt_split=0.8`.
+- Для автоматического определения доминирующего языка задайте
+  `DEEPGRAM_DETECT_LANGUAGE=true`. Для смешанной речи с переключением языков
+  используйте `DEEPGRAM_LANGUAGE=multi` при выключенном автоопределении.
 - Временные сетевые и серверные ошибки повторяются с backoff; неподдерживаемое или
   повреждённое аудио классифицируется как `bad_input`.
 

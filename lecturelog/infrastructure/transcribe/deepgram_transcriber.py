@@ -135,6 +135,7 @@ class DeepgramTranscriber(Transcriber):
         base_url: str = "https://api.deepgram.com",
         model: str = "nova-3",
         language: str = "ru",
+        detect_language: bool = False,
         utt_split: float = 0.8,
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -143,6 +144,7 @@ class DeepgramTranscriber(Transcriber):
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._language = language
+        self._detect_language = detect_language
         self._utt_split = utt_split
         self._transport = transport
         self._sleep = sleep
@@ -160,12 +162,15 @@ class DeepgramTranscriber(Transcriber):
     ) -> httpx.Response:
         params = {
             "model": self._model,
-            "language": self._language,
             "smart_format": "true",
             "utterances": "true",
             "utt_split": str(self._utt_split),
             "mip_opt_out": "true",
         }
+        if self._detect_language:
+            params["detect_language"] = "true"
+        else:
+            params["language"] = self._language
         content_type = mimetypes.guess_type(audio_path.name)[0] or "application/octet-stream"
         headers = {
             "Authorization": f"Token {self._api_key}",

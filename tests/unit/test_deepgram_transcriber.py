@@ -64,11 +64,38 @@ async def test_streams_file_and_builds_srt(tmp_path, monkeypatch):
     assert seen["headers"]["authorization"] == "Token test-secret"
     assert seen["headers"]["content-length"] == str(len(b"audio-data"))
     assert seen["query"]["model"] == "nova-3"
+    assert seen["query"]["language"] == "ru"
+    assert "detect_language" not in seen["query"]
     assert seen["query"]["mip_opt_out"] == "true"
     assert seen["query"]["utterances"] == "true"
     assert result.read_text() == "1\n00:00:00,000 --> 00:00:03,500\nПривет, мир."
     assert progress == [5, 10, 20, 30, 40, 50, 60, 70, 90, 100]
     assert [item["audio_seconds"] for item in usage] == [4, 3]
+
+
+async def test_detect_language_omits_fixed_language(tmp_path, monkeypatch):
+    seen: dict[str, str] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(dict(request.url.params))
+        await request.aread()
+        return httpx.Response(200, json=_payload())
+
+    async def fake_probe(path: Path) -> float:
+        return 4.0
+
+    monkeypatch.setattr(mod, "probe_audio_seconds", fake_probe)
+    audio = tmp_path / "lecture.mp3"
+    audio.write_bytes(b"audio")
+    transcriber = mod.DeepgramTranscriber(
+        api_key="secret",
+        language="ru",
+        detect_language=True,
+        transport=httpx.MockTransport(handler),
+    )
+    await transcriber.transcribe(audio, tmp_path / "out")
+    assert seen["detect_language"] == "true"
+    assert "language" not in seen
 
 
 async def test_retries_503_with_repeatable_body(tmp_path, monkeypatch):

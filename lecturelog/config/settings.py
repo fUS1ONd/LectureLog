@@ -22,6 +22,7 @@ class TranscribeConfig(BaseSettings):
     deepgram_base_url: str = Field("https://api.deepgram.com", alias="DEEPGRAM_BASE_URL")
     deepgram_model: str = Field("nova-3", alias="DEEPGRAM_MODEL")
     deepgram_language: str = Field("ru", alias="DEEPGRAM_LANGUAGE")
+    deepgram_detect_language: bool = Field(False, alias="DEEPGRAM_DETECT_LANGUAGE")
     deepgram_utt_split: float = Field(0.8, alias="DEEPGRAM_UTT_SPLIT", gt=0)
 
     @model_validator(mode="after")

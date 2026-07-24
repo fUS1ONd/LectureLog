@@ -94,3 +94,15 @@ def test_transcriber_factory_selects_deepgram():
         DEEPGRAM_API_KEY="secret",
     )
     assert isinstance(transcriber_factory(config), DeepgramTranscriber)
+
+
+def test_transcriber_factory_passes_language_detection():
+    config = TranscribeConfig(
+        _env_file=None,
+        TRANSCRIBE_PROVIDER="deepgram",
+        DEEPGRAM_API_KEY="secret",
+        DEEPGRAM_DETECT_LANGUAGE=True,
+    )
+    transcriber = transcriber_factory(config)
+    assert isinstance(transcriber, DeepgramTranscriber)
+    assert transcriber._detect_language is True

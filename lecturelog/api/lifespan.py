@@ -56,11 +56,14 @@ async def lifespan(app: FastAPI):
     transcribe_model = (
         "whisper-large-v3" if cfg.transcribe.provider == "groq" else cfg.transcribe.deepgram_model
     )
+    transcribe_language = "auto"
+    if cfg.transcribe.provider == "deepgram" and not cfg.transcribe.deepgram_detect_language:
+        transcribe_language = cfg.transcribe.deepgram_language
     logger.info(
         "STT включён: provider=%s model=%s language=%s",
         cfg.transcribe.provider,
         transcribe_model,
-        cfg.transcribe.deepgram_language if cfg.transcribe.provider == "deepgram" else "auto",
+        transcribe_language,
     )
     structurizer = GeminiStructurizer(
         gemini_client=llm,

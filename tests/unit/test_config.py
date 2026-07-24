@@ -42,8 +42,19 @@ def test_deepgram_provider_needs_only_deepgram_key(monkeypatch):
     cfg = AppConfig()
     assert cfg.transcribe.provider == "deepgram"
     assert cfg.transcribe.deepgram_model == "nova-3"
+    assert cfg.transcribe.deepgram_detect_language is False
     assert cfg.transcribe.deepgram_api_key.get_secret_value() == "dg-secret"
     assert "dg-secret" not in repr(cfg.transcribe)
+
+
+def test_deepgram_language_detection_reads_boolean(monkeypatch):
+    for k, v in _env(
+        TRANSCRIBE_PROVIDER="deepgram",
+        DEEPGRAM_API_KEY="dg-secret",
+        DEEPGRAM_DETECT_LANGUAGE="true",
+    ).items():
+        monkeypatch.setenv(k, v)
+    assert AppConfig().transcribe.deepgram_detect_language is True
 
 
 def test_deepgram_provider_rejects_empty_key(monkeypatch):
