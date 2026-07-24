@@ -12,6 +12,7 @@ from lecturelog.application.factories import cutter_factory
 from lecturelog.application.progress_plan import ProgressPlan
 from lecturelog.application.usage_accumulator import UsageAccumulator
 from lecturelog.domain.enums import PipelineStage, TaskStatus
+from lecturelog.domain.exceptions import MediaIngestError
 from lecturelog.domain.media_source import (
     AudioSource,
     MediaSource,
@@ -363,6 +364,14 @@ class PipelineService:
             return result_path
         except Exception as exc:
             logger.warning("Пайплайн упал для task=%s: %s", task.task_id, exc)
+            if isinstance(exc, MediaIngestError) and exc.diagnostic:
+                logger.warning(
+                    "Диагностика media ingest task=%s source=%s reason=%s: %s",
+                    task.task_id,
+                    exc.source_kind,
+                    exc.reason,
+                    exc.diagnostic,
+                )
             # Best-effort: пересчитать total и сохранить частичный расход,
             # чтобы он доехал на FAILED/INTERRUPTED.
             acc.compute_total()

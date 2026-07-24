@@ -102,6 +102,34 @@ def test_worker_default_concurrency(monkeypatch):
     assert cfg.worker.max_concurrent_tasks == 2
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, "720"),
+        ("best", "best"),
+        ("BEST", "best"),
+        ("1080", "1080"),
+        (" 720 ", "720"),
+    ],
+)
+def test_media_target_resolution(monkeypatch, raw, expected):
+    for k, v in _env().items():
+        monkeypatch.setenv(k, v)
+    if raw is None:
+        monkeypatch.delenv("VIDEO_TARGET_RESOLUTION", raising=False)
+    else:
+        monkeypatch.setenv("VIDEO_TARGET_RESOLUTION", raw)
+    assert AppConfig().media.target_resolution == expected
+
+
+@pytest.mark.parametrize("raw", ["143", "4321", "720p", "", "-1"])
+def test_media_target_resolution_rejects_invalid_value(monkeypatch, raw):
+    for k, v in _env(VIDEO_TARGET_RESOLUTION=raw).items():
+        monkeypatch.setenv(k, v)
+    with pytest.raises(Exception, match="VIDEO_TARGET_RESOLUTION"):  # noqa: B017
+        AppConfig()
+
+
 def test_missing_required_key_raises(monkeypatch):
     # Изолируем именно обязательность OPENROUTER_API_KEY: остальное окружение полное.
     for k, v in _env().items():

@@ -5,7 +5,8 @@
 </p>
 
 HTTP-сервис обработки лекций: на вход — лекция в виде аудиозаписи, видеофайла или
-ссылки на видео (YouTube/HTTP), опционально + слайды PDF/PPTX; на выходе —
+ссылки на видео (YouTube, публичные посты X и обычные HTTP(S)-URL), опционально +
+слайды PDF/PPTX; на выходе —
 структурированный конспект в формате Obsidian (Markdown + нарезанные
 медиафрагменты + слайды), упакованный в ZIP.
 
@@ -109,6 +110,12 @@ Expiration 1 день (временные ZIP от `/result-url`). Префик�
 (нарезка фрагментов и извлечение кадров), `yt-dlp` (скачивание видео по URL), а также
 питон-пакеты `opencv-python-headless` и `numpy` (локальный анализ видеоряда для
 стадии `video_slides`).
+
+Для X поддерживаются публичные `x.com`/`twitter.com`-посты без cookies. Если пост
+содержит несколько видео, URL поста выбирает первое вложение, а суффикс `/video/N` —
+явно указанное. Закрытые, удалённые и требующие авторизации посты не поддерживаются.
+Качество всех URL-видео задаёт `VIDEO_TARGET_RESOLUTION`: числовое значение является
+ориентационно-независимой мягкой целью, `best` снимает ограничение.
 
 Проверка:
 
@@ -287,6 +294,7 @@ python scripts/submit_task.py submit --audio lecture.mp3 --slides slides.pdf
 # видео (слайды извлекаются из видеоряда автоматически)
 python scripts/submit_task.py submit --video lecture.mp4
 python scripts/submit_task.py submit --video-url "https://youtu.be/abc"
+python scripts/submit_task.py submit --video-url "https://x.com/i/status/2078106556634124335"
 
 # видео без слайдов
 python scripts/submit_task.py submit --video lecture.mp4 --no-slides
@@ -340,6 +348,7 @@ python scripts/submit_task.py --base http://my-host:8000/api/v1 status <task_id>
 | `DEEPGRAM_UTT_SPLIT`   | Порог паузы utterance в секундах (по умолчанию `0.8`). |
 | `OPENROUTER_API_KEY`   | Ключ OpenRouter; LLM-вызовы идут через BYOK Google AI Studio. |
 | `OPENROUTER_BASE_URL`  | Base URL OpenRouter (по умолчанию `https://openrouter.ai/api/v1`). |
+| `VIDEO_TARGET_RESOLUTION` | Целевое разрешение URL-видео: `144..4320` либо `best`; по умолчанию `720`. |
 | `LLM_MODELS_*`         | Приоритетные списки моделей по этапам структуризации (fallback при 429). |
 | `LLM_CONCURRENCY_*`    | Параллельность вызовов LLM по этапам.                     |
 | `LLM_EFFORT_*`         | Reasoning effort по этапам структуризации (по умолчанию `low`). |
