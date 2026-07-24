@@ -103,11 +103,11 @@ def test_frames_config_defaults(monkeypatch):
         monkeypatch.setenv(k, v)
     cfg = AppConfig()
     assert cfg.frames.enabled is True
-    assert cfg.frames.models[0] == "google/gemini-3.1-flash-lite"
+    assert cfg.frames.models[0] == "google/gemini-3.5-flash-lite"
     # Классификация режимов — на тяжёлой модели с бóльшим effort (1-2 вызова);
     # high: её решения самые нагруженные, а на medium модель недетерминированно
     # путала слайды с доской (ч/б board-рендер на слайдовых лекциях)
-    assert cfg.frames.classify_models[0] == "google/gemini-3.5-flash"
+    assert cfg.frames.classify_models[0] == "google/gemini-3.6-flash"
     assert cfg.frames.classify_effort == "high"
 
 

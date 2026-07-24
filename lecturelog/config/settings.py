@@ -24,19 +24,21 @@ class GroqConfig(BaseSettings):
 class LlmConfig(BaseSettings):
     # Транспорт LLM переведён на OpenRouter (BYOK): один ключ и base_url
     # вместо пула ключей Gemini. Модели указываются с префиксом провайдера
-    # (например, "google/gemini-3.5-flash").
+    # (например, "google/gemini-3.6-flash").
     model_config = _BASE
     openrouter_key: str = Field(alias="OPENROUTER_API_KEY")
     base_url: str = Field("https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL")
 
     models_split: str = Field(
-        "google/gemini-3.5-flash,google/gemini-3-flash-preview", alias="LLM_MODELS_SPLIT"
+        "google/gemini-3.6-flash,google/gemini-3.5-flash,google/gemini-3.5-flash-lite",
+        alias="LLM_MODELS_SPLIT",
     )
     models_subsplit: str = Field(
-        "google/gemini-3.5-flash,google/gemini-3-flash-preview", alias="LLM_MODELS_SUBSPLIT"
+        "google/gemini-3.6-flash,google/gemini-3.5-flash,google/gemini-3.5-flash-lite",
+        alias="LLM_MODELS_SUBSPLIT",
     )
     models_render: str = Field(
-        "google/gemini-3.1-flash-lite,google/gemini-3.5-flash,google/gemini-3-flash-preview",
+        "google/gemini-3.5-flash-lite,google/gemini-3.6-flash,google/gemini-3.5-flash",
         alias="LLM_MODELS_RENDER",
     )
     concurrency_subsplit: int = Field(2, alias="LLM_CONCURRENCY_SUBSPLIT")
@@ -67,7 +69,7 @@ class FramesConfig(BaseSettings):
     model_config = _BASE
     enabled: bool = Field(True, alias="FRAMES_ENABLED")
     models_raw: str = Field(
-        "google/gemini-3.1-flash-lite,google/gemini-3.5-flash,google/gemini-3-flash-preview",
+        "google/gemini-3.5-flash-lite,google/gemini-3.6-flash,google/gemini-3.5-flash",
         alias="LLM_MODELS_VIDEO_SLIDES",
     )
     effort: str = Field("medium", alias="LLM_EFFORT_VIDEO_SLIDES")
@@ -76,7 +78,7 @@ class FramesConfig(BaseSettings):
     # На medium модель недетерминированно путала слайды с доской (реальный
     # кейс: ч/б board-рендер слайдовых сегментов). QC — на дешёвом списке выше.
     classify_models_raw: str = Field(
-        "google/gemini-3.5-flash,google/gemini-3-flash-preview,google/gemini-3.1-flash-lite",
+        "google/gemini-3.6-flash,google/gemini-3.5-flash,google/gemini-3.5-flash-lite",
         alias="LLM_MODELS_FRAMES_CLASSIFY",
     )
     classify_effort: str = Field("high", alias="LLM_EFFORT_FRAMES_CLASSIFY")
