@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import shutil
@@ -32,6 +33,12 @@ from lecturelog.domain.ports import (
     TaskRepository,
     Transcriber,
     WebhookNotifier,
+)
+from lecturelog.domain.slides import (
+    SlideAsset,
+    SlidePlacement,
+    StructurizeContext,
+    StructurizeResult,
 )
 from lecturelog.infrastructure.export.structure import build_structure, result_key
 from lecturelog.infrastructure.export.zip_utils import zip_dir
@@ -241,7 +248,7 @@ class PipelineService:
                     video_frames = []
                 await self._persist_usage(task, acc)
 
-            slide_items: list[SlideImage] = []
+            slide_items: list[SlideAsset] = []
             if slide_provider is not None:
                 # Единственный источник документных слайдов — приложенный документ,
                 # slides_origin — "document". Видео-кадры (см. выше) идут отдельным
@@ -255,10 +262,22 @@ class PipelineService:
                     stage=PipelineStage.SLIDES,
                     progress=plan.stage_start(PipelineStage.SLIDES),
                 )
-                slide_items = await slide_provider.get_slides(
+                provided_slides = await slide_provider.get_slides(
                     output_dir=work_dir / "slides",
                     on_usage=None,
                 )
+                slide_items = [
+                    item
+                    if isinstance(item, SlideAsset)
+                    else SlideAsset(
+                        slide_num=index,
+                        path=item.path,
+                        origin="document",
+                        extracted_text=item.extracted_text or "",
+                        native_text_quality="good" if item.extracted_text else "none",
+                    )
+                    for index, item in enumerate(provided_slides, start=1)
+                ]
 
             await self._set(
                 task,
@@ -273,13 +292,33 @@ class PipelineService:
                     progress=plan.scale(PipelineStage.STRUCTURIZE, pct),
                 )
 
-            topics = await self._structurizer.structurize(
-                srt_path=srt_path,
-                slide_images=[s.path for s in slide_items],  # только документ; кадры — мимо
-                output_dir=work_dir / "structurize",
-                on_progress=structurize_progress,
-                on_usage=structurize_usage,
+            structurize_kwargs = {
+                "srt_path": srt_path,
+                "output_dir": work_dir / "structurize",
+                "on_progress": structurize_progress,
+                "on_usage": structurize_usage,
+            }
+            structurize_parameters = inspect.signature(
+                self._structurizer.structurize
+            ).parameters
+            if "slide_assets" in structurize_parameters:
+                structurize_kwargs["slide_assets"] = slide_items
+                structurize_kwargs["context"] = StructurizeContext(
+                    source_kind="video" if is_video else "audio",
+                    local_video_path=local_video if is_video else None,
+                )
+            else:  # transitional compatibility for third-party/test adapters
+                structurize_kwargs["slide_images"] = [asset.path for asset in slide_items]
+            raw_structurize_result = await self._structurizer.structurize(
+                **structurize_kwargs
             )
+            structurize_result = (
+                raw_structurize_result
+                if isinstance(raw_structurize_result, StructurizeResult)
+                else StructurizeResult(raw_structurize_result)
+            )
+            topics = structurize_result.topics
+            slide_placements = structurize_result.slide_placements
             await self._persist_usage(task, acc)
 
             if video_frames:
@@ -288,7 +327,41 @@ class PipelineService:
                 # Маркеры <!-- slide:N --> внутри content секций — позиция
                 # кадра между абзацами (взвешенная пропорция по timestamp)
                 place_slides_in_sections(video_frames, topics)
-                slide_items = video_frames
+                slide_items = [
+                    SlideAsset(
+                        slide_num=index,
+                        path=item.path,
+                        origin="video",
+                        timestamp=item.timestamp,
+                        caption=item.caption,
+                    )
+                    for index, item in enumerate(video_frames, start=1)
+                ]
+                placement_by_slide: dict[int, SlidePlacement] = {}
+                for global_section_id, section in enumerate(
+                    section for topic in topics for section in topic.sections
+                ):
+                    for slide_num in section.slide_indices:
+                        placement_by_slide[slide_num] = SlidePlacement(
+                            slide_num,
+                            "inline",
+                            global_section_id,
+                            anchor_confidence="fallback",
+                            fallback_reason="video_timestamp",
+                        )
+                slide_placements = tuple(
+                    placement_by_slide.get(
+                        asset.slide_num,
+                        SlidePlacement(
+                            asset.slide_num,
+                            "appendix",
+                            None,
+                            anchor_confidence="none",
+                            fallback_reason="video_unassigned",
+                        ),
+                    )
+                    for asset in slide_items
+                )
 
             sections = [s for t in topics for s in t.sections]
             cutter = cutter_factory(
@@ -305,13 +378,19 @@ class PipelineService:
                 task, stage=PipelineStage.EXPORT, progress=plan.stage_start(PipelineStage.EXPORT)
             )
             media_kind = "video" if is_video else "audio"
-            export_result = await self._exporter.export(
-                topics=topics,
-                media_fragments=fragments,
-                slide_images=slide_items,
-                output_dir=work_dir / "export",
-                media_kind=media_kind,
-            )
+            export_kwargs = {
+                "topics": topics,
+                "media_fragments": fragments,
+                "output_dir": work_dir / "export",
+                "media_kind": media_kind,
+            }
+            export_parameters = inspect.signature(self._exporter.export).parameters
+            if "slide_assets" in export_parameters:
+                export_kwargs["slide_assets"] = slide_items
+                export_kwargs["slide_placements"] = slide_placements
+            else:  # transitional compatibility for third-party/test adapters
+                export_kwargs["slide_images"] = slide_items
+            export_result = await self._exporter.export(**export_kwargs)
             output_root = export_result.output_root
 
             # После DONE локальный work_dir удаляется worker-ом. Сохраняем SRT

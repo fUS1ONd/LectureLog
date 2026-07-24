@@ -1,0 +1,17 @@
+{
+  "case_id": "synthetic",
+  "slides": [
+    {
+      "slide_num": 1,
+      "status": "discussed",
+      "acceptable_section_ids": [0],
+      "acceptable_time_ranges": [[0.0, 10.0]],
+      "role": "content"
+    },
+    {
+      "slide_num": 2,
+      "status": "unmentioned",
+      "role": "appendix"
+    }
+  ]
+}

@@ -76,6 +76,7 @@ async def lifespan(app: FastAPI):
         effort_split=cfg.llm.effort_split,
         effort_subsplit=cfg.llm.effort_subsplit,
         effort_render=cfg.llm.effort_render,
+        document_alignment_mode=cfg.document_slides.alignment_mode,
     )
     # Опциональный вебхук: включается только при заданных URL и секрете.
     notifier = webhook_notifier_factory(cfg.webhook.callback_url, cfg.webhook.secret)

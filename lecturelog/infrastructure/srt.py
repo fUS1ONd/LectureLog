@@ -2,20 +2,44 @@ from __future__ import annotations
 
 import re
 
+from lecturelog.domain.slides import TranscriptBlock
+
+_TIMELINE_RE = re.compile(
+    r"(?P<start>\d{1,2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*"
+    r"(?P<end>\d{1,2}:\d{2}:\d{2}[.,]\d{3})"
+)
+
+
+def parse_srt_blocks(srt: str) -> list[TranscriptBlock]:
+    """Parse SRT once into stable, 1-based evidence blocks."""
+    normalized = srt.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return []
+    result: list[TranscriptBlock] = []
+    for raw_block in re.split(r"\n\s*\n+", normalized):
+        lines = [line.strip() for line in raw_block.splitlines() if line.strip()]
+        timeline_pos = next((i for i, line in enumerate(lines) if _TIMELINE_RE.search(line)), None)
+        if timeline_pos is None:
+            continue
+        match = _TIMELINE_RE.search(lines[timeline_pos])
+        assert match is not None
+        text = " ".join(lines[timeline_pos + 1 :]).strip()
+        if not text:
+            continue
+        result.append(
+            TranscriptBlock(
+                block_id=len(result) + 1,
+                start_s=parse_srt_time(match.group("start")),
+                end_s=parse_srt_time(match.group("end")),
+                text=text,
+            )
+        )
+    return result
+
 
 def extract_plain_text(srt: str) -> str:
     """Извлекает чистый текст из SRT, убирая нумерацию и таймкоды."""
-    lines: list[str] = []
-    for line in srt.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        if re.match(r"^\d+$", line):
-            continue
-        if re.match(r"\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->", line):
-            continue
-        lines.append(line)
-    return " ".join(lines)
+    return " ".join(block.text for block in parse_srt_blocks(srt))
 
 
 def srt_to_plain_text(srt: str) -> str:
@@ -24,22 +48,7 @@ def srt_to_plain_text(srt: str) -> str:
     Многострочные подписи внутри блока склеиваются через пробел.
     Между блоками — перевод строки.
     """
-    blocks = re.split(r"\n\s*\n+", srt.strip())
-    result_lines: list[str] = []
-    for block in blocks:
-        text_lines: list[str] = []
-        for line in block.split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            if re.match(r"^\d+$", line):
-                continue
-            if re.match(r"\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->", line):
-                continue
-            text_lines.append(line)
-        if text_lines:
-            result_lines.append(" ".join(text_lines))
-    return "\n".join(result_lines)
+    return "\n".join(block.text for block in parse_srt_blocks(srt))
 
 
 def parse_srt_time(time_str: str) -> float:
@@ -63,20 +72,20 @@ def extract_srt_fragment(srt: str, start: str, end: str) -> str:
     start_sec = parse_srt_time(start.replace(".", ",") if "," not in start else start)
     end_sec = parse_srt_time(end.replace(".", ",") if "," not in end else end)
 
-    blocks = re.split(r"\n\n+", srt.strip())
-    result: list[str] = []
-
-    for block in blocks:
-        time_match = re.search(
-            r"(\d{2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3})",
-            block,
-        )
-        if not time_match:
-            continue
-
-        block_start = parse_srt_time(time_match.group(1))
-        block_end = parse_srt_time(time_match.group(2))
-        if block_end >= start_sec and block_start <= end_sec:
-            result.append(block)
-
+    result = []
+    for block in parse_srt_blocks(srt):
+        if block.end_s >= start_sec and block.start_s <= end_sec:
+            result.append(
+                f"{block.block_id}\n"
+                f"{_format_srt_seconds(block.start_s)} --> {_format_srt_seconds(block.end_s)}\n"
+                f"{block.text}"
+            )
     return "\n\n".join(result)
+
+
+def _format_srt_seconds(value: float) -> str:
+    milliseconds = round(value * 1000)
+    hours, rest = divmod(milliseconds, 3_600_000)
+    minutes, rest = divmod(rest, 60_000)
+    seconds, millis = divmod(rest, 1000)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{millis:03d}"

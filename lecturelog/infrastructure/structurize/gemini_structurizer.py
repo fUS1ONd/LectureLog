@@ -9,7 +9,18 @@ from typing import Any
 
 from lecturelog.domain.models import Section, Topic
 from lecturelog.domain.ports import ProgressCallback, Structurizer, UsageCallback
+from lecturelog.domain.slides import (
+    SlideAsset,
+    SlideAssignment,
+    SlidePlacement,
+    StructurizeContext,
+    StructurizeResult,
+)
 from lecturelog.infrastructure.llm.llm_client import LlmClient
+from lecturelog.infrastructure.slides.alignment.anchoring import anchor_assignment
+from lecturelog.infrastructure.slides.alignment.catalog import native_text_fallback
+from lecturelog.infrastructure.slides.alignment.diagnostics import write_diagnostic
+from lecturelog.infrastructure.slides.alignment.service import DocumentAlignmentService
 from lecturelog.infrastructure.srt import extract_srt_fragment, format_time
 from lecturelog.infrastructure.structurize.slide_backfill import backfill_missing_slides
 from lecturelog.infrastructure.structurize.slide_mapping import normalize_slide_mapping
@@ -54,6 +65,7 @@ class GeminiStructurizer(Structurizer):
         effort_split: str,
         effort_subsplit: str,
         effort_render: str,
+        document_alignment_mode: str = "legacy",
     ) -> None:
         self._gemini = gemini_client
         self._split_models = split_models
@@ -65,6 +77,8 @@ class GeminiStructurizer(Structurizer):
         self._effort_split = effort_split
         self._effort_subsplit = effort_subsplit
         self._effort_render = effort_render
+        self._document_alignment_mode = document_alignment_mode
+        self._document_alignment = DocumentAlignmentService()
 
     def _read_prompt(self, filename: str) -> str:
         return (self._prompts_dir / filename).read_text(encoding="utf-8")
@@ -211,14 +225,28 @@ class GeminiStructurizer(Structurizer):
     async def structurize(
         self,
         srt_path: Path,
-        slide_images: list[Path],
         output_dir: Path,
+        slide_assets: list[SlideAsset] | None = None,
+        context: StructurizeContext | None = None,
         on_progress: ProgressCallback | None = None,
         on_usage: UsageCallback | None = None,
-    ) -> list[Topic]:
+        slide_images: list[Path] | None = None,
+    ) -> StructurizeResult:
+        if slide_assets is None:
+            slide_assets = [
+                SlideAsset(
+                    slide_num=index,
+                    path=path,
+                    origin="document",
+                    extracted_text="",
+                    native_text_quality="none",
+                )
+                for index, path in enumerate(slide_images or [], start=1)
+            ]
+        context = context or StructurizeContext(source_kind="audio")
         output_dir.mkdir(parents=True, exist_ok=True)
         srt_content = srt_path.read_text(encoding="utf-8")
-        slide_bytes = [path.read_bytes() for path in slide_images]
+        slide_bytes = [asset.path.read_bytes() for asset in slide_assets]
 
         # ── Этап 1: Topic split (0% → 10%) ─────────────────────────
         await _emit_progress(on_progress, 2)
@@ -261,10 +289,45 @@ class GeminiStructurizer(Structurizer):
 
         topics_sections: list[list[dict[str, Any]]] = [sections for _, sections in subsplit_results]
 
+        v2_assignments: tuple[SlideAssignment, ...] = ()
+        if slide_assets and self._document_alignment_mode in {"shadow", "v2"}:
+            try:
+                v2_assignments = self._document_alignment.align(
+                    assets=slide_assets,
+                    section_layout=topics_sections,
+                    srt_content=srt_content,
+                )
+                write_diagnostic(
+                    output_dir / "document-slide-alignment.json",
+                    mode=self._document_alignment_mode,
+                    assignments=v2_assignments,
+                    prompt_versions={"catalog": "native-text-v1", "alignment": "dp-v1"},
+                )
+            except Exception as error:  # noqa: BLE001 - explicit outer fail-safe
+                logger.exception(
+                    "document alignment %s failed: %s",
+                    self._document_alignment_mode,
+                    error,
+                )
+                if self._document_alignment_mode == "v2":
+                    v2_assignments = tuple(
+                        SlideAssignment(
+                            asset.slide_num,
+                            "unmentioned",
+                            None,
+                            (),
+                            None,
+                            "unresolved",
+                            0.0,
+                            "alignment_error",
+                        )
+                        for asset in slide_assets
+                    )
+
         # ── Этап 3: Slide match (30% → 50%) ────────────────────────
         topic_slide_mapping: list[dict[int, list[int]]] = [{} for _ in topics_data]
 
-        if slide_images:
+        if slide_assets and self._document_alignment_mode != "v2":
             # 3a. Грубый match: темы → слайды (1 вызов)
             rough_prompt = self._read_prompt("slide_match_topics_v1.md")
             topics_json = json.dumps(topics_data, ensure_ascii=False)
@@ -315,6 +378,19 @@ class GeminiStructurizer(Structurizer):
 
         await _emit_progress(on_progress, 50)
 
+        if self._document_alignment_mode == "v2":
+            for assignment in v2_assignments:
+                if assignment.match_status != "discussed" or assignment.global_section_id is None:
+                    continue
+                global_id = 0
+                for topic_index, sections in enumerate(topics_sections):
+                    for local_index, _section in enumerate(sections):
+                        if global_id == assignment.global_section_id:
+                            topic_slide_mapping[topic_index].setdefault(local_index, []).append(
+                                assignment.slide_num
+                            )
+                        global_id += 1
+
         # ── Этап 4: Render (50% → 100%) ────────────────────────────
         section_prompt_template = self._read_prompt("section_v1.md")
         render_sem = asyncio.Semaphore(self._concurrency_render)
@@ -335,7 +411,9 @@ class GeminiStructurizer(Structurizer):
                             srt_content=srt_content,
                             section_prompt_template=section_prompt_template,
                             slide_indices=section_slides,
-                            slide_bytes=slide_bytes,
+                            slide_bytes=slide_bytes
+                            if self._document_alignment_mode != "v2"
+                            else [],
                             semaphore=render_sem,
                             on_usage=on_usage,
                         )
@@ -384,8 +462,113 @@ class GeminiStructurizer(Structurizer):
             )
 
         # ── Страховка: вставляем слайды, потерянные LLM ──────
-        if slide_images:
-            backfill_missing_slides(result, len(slide_images))
+        if slide_assets and self._document_alignment_mode != "v2":
+            backfill_missing_slides(result, len(slide_assets))
 
         await _emit_progress(on_progress, 100)
-        return result
+        if self._document_alignment_mode == "v2":
+            placements: list[SlidePlacement] = []
+            assets_by_num = {asset.slide_num: asset for asset in slide_assets}
+            flat_sections = [section for topic in result for section in topic.sections]
+            for assignment in v2_assignments:
+                if assignment.match_status == "duplicate":
+                    placements.append(
+                        SlidePlacement(
+                            assignment.slide_num,
+                            "suppressed",
+                            None,
+                            anchor_confidence="none",
+                            fallback_reason=assignment.reason_code,
+                        )
+                    )
+                    continue
+                entry_result = native_text_fallback(assets_by_num[assignment.slide_num])
+                if (
+                    assignment.global_section_id is not None
+                    and assignment.global_section_id < len(flat_sections)
+                ):
+                    section = flat_sections[assignment.global_section_id]
+                    section.content, placement = anchor_assignment(
+                        assignment,
+                        entry_result.entry,
+                        section.content,
+                    )
+                else:
+                    placement = SlidePlacement(
+                        assignment.slide_num,
+                        "appendix",
+                        None,
+                        anchor_confidence="none",
+                        fallback_reason=assignment.reason_code,
+                    )
+                placements.append(placement)
+            for section_id, section in enumerate(flat_sections):
+                section.slide_indices = sorted(
+                    placement.slide_num
+                    for placement in placements
+                    if placement.global_section_id == section_id
+                    and placement.output_kind in {"inline", "section_gallery"}
+                )
+            for topic in result:
+                topic.slide_indices = sorted(
+                    {slide for section in topic.sections for slide in section.slide_indices}
+                )
+            return StructurizeResult(result, v2_assignments, tuple(placements))
+
+        assignments: list[SlideAssignment] = []
+        placements: list[SlidePlacement] = []
+        by_slide = {
+            slide_num: global_section_id
+            for global_section_id, section in enumerate(
+                section for topic in result for section in topic.sections
+            )
+            for slide_num in section.slide_indices
+        }
+        for asset in slide_assets:
+            global_section_id = by_slide.get(asset.slide_num)
+            if global_section_id is None:
+                assignments.append(
+                    SlideAssignment(
+                        asset.slide_num,
+                        "unmentioned",
+                        None,
+                        (),
+                        None,
+                        "unresolved",
+                        0.0,
+                        "legacy_unassigned",
+                    )
+                )
+                placements.append(
+                    SlidePlacement(
+                        asset.slide_num,
+                        "appendix",
+                        None,
+                        anchor_confidence="none",
+                        fallback_reason="legacy_unassigned",
+                    )
+                )
+            else:
+                assignments.append(
+                    SlideAssignment(
+                        asset.slide_num,
+                        "discussed",
+                        global_section_id,
+                        (),
+                        None,
+                        "probable",
+                        0.0,
+                        "legacy_mapping",
+                    )
+                )
+                placements.append(
+                    SlidePlacement(
+                        asset.slide_num,
+                        "section_gallery",
+                        global_section_id,
+                        gallery_position="before_content",
+                        anchor_confidence="fallback",
+                        fallback_reason="legacy_mapping",
+                    )
+                )
+        return StructurizeResult(result, tuple(assignments), tuple(placements))

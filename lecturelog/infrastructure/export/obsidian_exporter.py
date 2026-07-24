@@ -5,7 +5,8 @@ import shutil
 from pathlib import Path
 
 from lecturelog.domain.models import Topic
-from lecturelog.domain.ports import Exporter, ExportResult, SlideImage
+from lecturelog.domain.ports import Exporter, ExportResult
+from lecturelog.domain.slides import SlideAsset, SlidePlacement
 
 
 def _slugify(value: str) -> str:
@@ -35,10 +36,53 @@ class ObsidianExporter(Exporter):
         self,
         topics: list[Topic],
         media_fragments: list[Path],
-        slide_images: list[SlideImage],
         output_dir: Path,
         media_kind: str,
+        slide_assets: list[SlideAsset] | None = None,
+        slide_placements: tuple[SlidePlacement, ...] = (),
+        slide_images: list[object] | None = None,
     ) -> ExportResult:
+        if slide_assets is None:
+            slide_assets = [
+                item
+                if isinstance(item, SlideAsset)
+                else SlideAsset(
+                    slide_num=index,
+                    path=item.path,
+                    origin="video" if item.timestamp is not None else "document",
+                    timestamp=item.timestamp,
+                    caption=item.caption,
+                    extracted_text="" if item.timestamp is None else None,
+                    native_text_quality="none" if item.timestamp is None else None,
+                )
+                for index, item in enumerate(slide_images or [], start=1)
+            ]
+        if not slide_placements:
+            section_by_slide = {
+                slide_num: global_section_id
+                for global_section_id, section in enumerate(
+                    section for topic in topics for section in topic.sections
+                )
+                for slide_num in section.slide_indices
+            }
+            slide_placements = tuple(
+                SlidePlacement(
+                    asset.slide_num,
+                    "inline"
+                    if any(
+                        f"<!-- slide:{asset.slide_num} -->" in section.content
+                        for topic in topics
+                        for section in topic.sections
+                    )
+                    else "section_gallery",
+                    section_by_slide[asset.slide_num],
+                    gallery_position="before_content",
+                    anchor_confidence="fallback",
+                    fallback_reason="legacy_export_adapter",
+                )
+                for asset in slide_assets
+                if asset.slide_num in section_by_slide
+            )
         output_root = output_dir / "output"
         media_dir = output_root / media_kind
         slides_dir = output_root / "slides"
@@ -60,13 +104,27 @@ class ObsidianExporter(Exporter):
             shutil.copy2(fragment, target)
             media_targets.append(target)
 
-        slide_targets: list[Path] = []
-        for idx, item in enumerate(slide_images):
+        slide_nums = [asset.slide_num for asset in slide_assets]
+        if slide_nums != list(range(1, len(slide_assets) + 1)):
+            raise ValueError("slide assets должны иметь уникальные непрерывные номера 1..N")
+        slide_targets: dict[int, Path] = {}
+        for item in slide_assets:
             # Суффикс сохраняем как есть: документные слайды — JPEG/PNG от
             # рендера страницы, видеокадры — PNG от извлечения из видео.
-            target = slides_dir / f"slide-{idx + 1:02d}{item.path.suffix}"
+            target = slides_dir / f"slide-{item.slide_num:02d}{item.path.suffix}"
             shutil.copy2(item.path, target)
-            slide_targets.append(target)
+            slide_targets[item.slide_num] = target
+
+        assets_by_num = {asset.slide_num: asset for asset in slide_assets}
+        placements_by_section: dict[int, list[SlidePlacement]] = {}
+        appendix: list[SlidePlacement] = []
+        for placement in slide_placements:
+            if placement.output_kind in {"inline", "section_gallery"}:
+                if placement.global_section_id is None:
+                    raise ValueError("main-text placement требует global_section_id")
+                placements_by_section.setdefault(placement.global_section_id, []).append(placement)
+            elif placement.output_kind == "appendix":
+                appendix.append(placement)
 
         lines: list[str] = []
 
@@ -110,15 +168,17 @@ class ObsidianExporter(Exporter):
                 # без маркера (документные слайды, старые данные) — блоком
                 # перед контентом, как раньше.
                 content = section.content
-                for slide_idx in section.slide_indices:
-                    pos = slide_idx - 1
-                    if not 0 <= pos < len(slide_targets):
+                for placement in placements_by_section.get(global_section_idx, []):
+                    slide_idx = placement.slide_num
+                    target = slide_targets.get(slide_idx)
+                    asset = assets_by_num.get(slide_idx)
+                    if target is None or asset is None:
                         continue
-                    rel = slide_targets[pos].relative_to(output_root).as_posix()
-                    alt = slide_images[pos].caption or f"Слайд {slide_idx}"
+                    rel = target.relative_to(output_root).as_posix()
+                    alt = asset.caption or f"Слайд {slide_idx}"
                     image_line = f"![{alt}]({rel})"
                     marker = f"<!-- slide:{slide_idx} -->"
-                    if marker in content:
+                    if placement.output_kind == "inline" and marker in content:
                         content = content.replace(marker, image_line)
                     else:
                         lines.append(image_line)
@@ -128,6 +188,24 @@ class ObsidianExporter(Exporter):
                 lines.append("")
 
                 global_section_idx += 1
+
+        if appendix:
+            lines.extend(["# Непривязанные слайды", ""])
+            for placement in sorted(appendix, key=lambda item: item.slide_num):
+                target = slide_targets.get(placement.slide_num)
+                asset = assets_by_num.get(placement.slide_num)
+                if target is None or asset is None:
+                    continue
+                rel = target.relative_to(output_root).as_posix()
+                alt = asset.caption or f"Слайд {placement.slide_num}"
+                lines.extend(
+                    [
+                        f"## Слайд {placement.slide_num}",
+                        "",
+                        f"![{alt}]({rel})",
+                        "",
+                    ]
+                )
 
         (output_root / "конспект.md").write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
 

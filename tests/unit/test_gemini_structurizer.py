@@ -2,10 +2,82 @@ import json
 
 import pytest
 
+from lecturelog.domain.slides import SlideAsset, StructurizeContext
 from lecturelog.infrastructure.structurize.gemini_structurizer import (
     GeminiStructurizer,
     _parse_json,
 )
+
+
+@pytest.mark.asyncio
+async def test_v2_uses_evidence_and_does_not_send_slide_to_render(tmp_path, prompts_dir):
+    srt = tmp_path / "t.srt"
+    srt.write_text(
+        "1\n00:00:00,000 --> 00:00:10,000\n"
+        "Теперь разберём бинарное дерево поиска и его вершины.\n",
+        encoding="utf-8",
+    )
+    slide = tmp_path / "slide.png"
+    slide.write_bytes(b"slide")
+    topics_json = json.dumps([{"title": "Деревья", "start": "0:00", "end": "0:10"}])
+    sections_json = json.dumps([{"title": "Поиск", "start": "0:00", "end": "0:10"}])
+    gemini = ScriptedGemini([topics_json, sections_json, "Бинарное дерево поиска.\n\nВершины."])
+    structurizer = _make_structurizer(gemini, prompts_dir)
+    structurizer._document_alignment_mode = "v2"
+
+    result = await structurizer.structurize(
+        srt_path=srt,
+        slide_assets=[
+            SlideAsset(
+                1,
+                slide,
+                "document",
+                extracted_text="Бинарное дерево поиска. Вершины.",
+                native_text_quality="good",
+            )
+        ],
+        context=StructurizeContext("audio"),
+        output_dir=tmp_path / "out",
+    )
+
+    assert result.slide_assignments[0].match_status == "discussed"
+    assert result.slide_placements[0].output_kind == "inline"
+    assert "<!-- slide:1 -->" in result.topics[0].sections[0].content
+    assert all(not call["images"] for call in gemini.recorded_calls)
+
+
+@pytest.mark.asyncio
+async def test_v2_alignment_failure_falls_back_to_appendix(tmp_path, prompts_dir, monkeypatch):
+    srt = tmp_path / "t.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:00:10,000\ntext\n", encoding="utf-8")
+    slide = tmp_path / "slide.png"
+    slide.write_bytes(b"slide")
+    topics_json = json.dumps([{"title": "T", "start": "0:00", "end": "0:10"}])
+    sections_json = json.dumps([{"title": "S", "start": "0:00", "end": "0:10"}])
+    gemini = ScriptedGemini([topics_json, sections_json, "Rendered only from SRT."])
+    structurizer = _make_structurizer(gemini, prompts_dir)
+    structurizer._document_alignment_mode = "v2"
+
+    def fail(**_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(structurizer._document_alignment, "align", fail)
+    result = await structurizer.structurize(
+        srt_path=srt,
+        slide_assets=[
+            SlideAsset(
+                1,
+                slide,
+                "document",
+                extracted_text="slide-only claim",
+                native_text_quality="good",
+            )
+        ],
+        context=StructurizeContext("audio"),
+        output_dir=tmp_path / "out",
+    )
+    assert result.slide_placements[0].output_kind == "appendix"
+    assert result.topics[0].sections[0].slide_indices == []
 
 
 def test_parse_json_strips_code_fence():

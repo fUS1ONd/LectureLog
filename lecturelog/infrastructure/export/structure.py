@@ -27,7 +27,7 @@ def transcript_result_key(task_id: str) -> str:
 def build_structure(
     topics: list[Topic],
     media_targets: list[Path],
-    slide_targets: list[Path],
+    slide_targets: dict[int, Path] | list[Path],
     output_root: Path,
     task_id: str,
     media_kind: str,
@@ -69,9 +69,15 @@ def build_structure(
             slide_keys: list[str] = []
             slide_nums: list[int] = []
             for slide_idx in section.slide_indices:
-                pos = slide_idx - 1  # slide_indices 1-based
-                if 0 <= pos < len(slide_targets):
-                    slide_keys.append(result_key(slide_targets[pos], output_root, task_id))
+                target = (
+                    slide_targets.get(slide_idx)
+                    if isinstance(slide_targets, dict)
+                    else slide_targets[slide_idx - 1]
+                    if 0 < slide_idx <= len(slide_targets)
+                    else None
+                )
+                if target is not None:
+                    slide_keys.append(result_key(target, output_root, task_id))
                     slide_nums.append(slide_idx)
 
             subtopics.append(

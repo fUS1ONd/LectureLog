@@ -128,6 +128,13 @@ class FramesConfig(BaseSettings):
         return _split_csv(self.classify_models_raw)
 
 
+class DocumentSlidesConfig(BaseSettings):
+    model_config = _BASE
+    alignment_mode: Literal["legacy", "shadow", "v2"] = Field(
+        "legacy", alias="DOCUMENT_SLIDE_ALIGNMENT_MODE"
+    )
+
+
 class DatabaseConfig(BaseSettings):
     model_config = _BASE
     url: str = Field(alias="DATABASE_URL")
@@ -197,6 +204,7 @@ class AppConfig(BaseSettings):
             self.media,
             self.webhook,
             self.frames,
+            self.document_slides,
         )
 
     @computed_field  # type: ignore[prop-decorator]
@@ -238,6 +246,11 @@ class AppConfig(BaseSettings):
     @cached_property
     def frames(self) -> FramesConfig:
         return FramesConfig()
+
+    @computed_field  # type: ignore[prop-decorator]
+    @cached_property
+    def document_slides(self) -> DocumentSlidesConfig:
+        return DocumentSlidesConfig()
 
 
 @lru_cache

@@ -38,6 +38,12 @@ HTTP-сервис обработки лекций: на вход — лекци�
 
 Для аудио слайды есть только при приложенном документе.
 
+Для документных слайдов доступны `legacy`, `shadow` и `v2` через
+`DOCUMENT_SLIDE_ALIGNMENT_MODE`. В `v2` страница попадает inline только при
+проверяемом свидетельстве в SRT и безопасном Markdown-anchor; менее уверенные
+страницы остаются галереей раздела, а неупомянутые выводятся в отдельном
+приложении. `shadow` считает диагностику, но сохраняет legacy-результат.
+
 ### Кадры из видео (стадия `video_slides`)
 
 Отдельно от «Режимов слайдов» выше: для видео-лекций **без** приложенного документа
@@ -353,6 +359,7 @@ python scripts/submit_task.py --base http://my-host:8000/api/v1 status <task_id>
 | `LLM_CONCURRENCY_*`    | Параллельность вызовов LLM по этапам.                     |
 | `LLM_EFFORT_*`         | Reasoning effort по этапам структуризации (по умолчанию `low`). |
 | `FRAMES_ENABLED`       | Вкл./выкл. стадии отбора кадров из видео (`video_slides`). По умолчанию `true`. |
+| `DOCUMENT_SLIDE_ALIGNMENT_MODE` | Привязка PDF/PPTX: `legacy`, `shadow` или `v2`; по умолчанию `legacy`. |
 | `LLM_MODELS_VIDEO_SLIDES` | Приоритетный список VLM-моделей для QC кадров (fallback при 429). |
 | `LLM_EFFORT_VIDEO_SLIDES` | Reasoning effort для QC кадров (по умолчанию `low`). |
 | `LLM_MODELS_FRAMES_CLASSIFY` | Приоритетный список VLM-моделей для классификации режимов видео. |
