@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from functools import cached_property, lru_cache
+from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import Field, computed_field, field_validator
+from pydantic import Field, SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BASE = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -12,13 +14,47 @@ def _split_csv(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-class GroqConfig(BaseSettings):
+class TranscribeConfig(BaseSettings):
     model_config = _BASE
-    api_keys_raw: str = Field(alias="GROQ_API_KEYS")
+    provider: Literal["groq", "deepgram"] = Field("groq", alias="TRANSCRIBE_PROVIDER")
+    groq_api_keys_raw: str = Field("", alias="GROQ_API_KEYS")
+    deepgram_api_key: SecretStr | None = Field(None, alias="DEEPGRAM_API_KEY")
+    deepgram_base_url: str = Field("https://api.deepgram.com", alias="DEEPGRAM_BASE_URL")
+    deepgram_model: str = Field("nova-3", alias="DEEPGRAM_MODEL")
+    deepgram_language: str = Field("ru", alias="DEEPGRAM_LANGUAGE")
+    deepgram_detect_language: bool = Field(False, alias="DEEPGRAM_DETECT_LANGUAGE")
+    deepgram_utt_split: float = Field(0.8, alias="DEEPGRAM_UTT_SPLIT", gt=0)
+
+    @model_validator(mode="after")
+    def validate_provider(self) -> TranscribeConfig:
+        parts = urlsplit(self.deepgram_base_url)
+        allowed_hosts = {
+            "api.deepgram.com",
+            "api.eu.deepgram.com",
+            "api.au.deepgram.com",
+        }
+        if (
+            parts.scheme != "https"
+            or parts.hostname not in allowed_hosts
+            or parts.username is not None
+            or parts.password is not None
+            or parts.query
+            or parts.fragment
+            or parts.path not in ("", "/")
+        ):
+            raise ValueError("DEEPGRAM_BASE_URL должен быть официальным HTTPS endpoint Deepgram")
+        self.deepgram_base_url = self.deepgram_base_url.rstrip("/")
+        if self.provider == "groq" and not self.groq_keys:
+            raise ValueError("GROQ_API_KEYS обязателен при TRANSCRIBE_PROVIDER=groq")
+        if self.provider == "deepgram" and (
+            self.deepgram_api_key is None or not self.deepgram_api_key.get_secret_value().strip()
+        ):
+            raise ValueError("DEEPGRAM_API_KEY обязателен при TRANSCRIBE_PROVIDER=deepgram")
+        return self
 
     @property
-    def keys(self) -> list[str]:
-        return _split_csv(self.api_keys_raw)
+    def groq_keys(self) -> list[str]:
+        return _split_csv(self.groq_api_keys_raw)
 
 
 class LlmConfig(BaseSettings):
@@ -150,10 +186,10 @@ class AppConfig(BaseSettings):
     model_config = _BASE
 
     def model_post_init(self, __context: object) -> None:
-        # Форсируем создание под-конфигов сразу, чтобы required-поля
-        # (GROQ_API_KEYS и т.д.) валидировались в момент построения AppConfig.
+        # Форсируем создание под-конфигов сразу, чтобы ключ выбранного
+        # STT-провайдера и остальные required-поля проверялись при построении AppConfig.
         _ = (
-            self.groq,
+            self.transcribe,
             self.llm,
             self.database,
             self.s3,
@@ -165,8 +201,8 @@ class AppConfig(BaseSettings):
 
     @computed_field  # type: ignore[prop-decorator]
     @cached_property
-    def groq(self) -> GroqConfig:
-        return GroqConfig()
+    def transcribe(self) -> TranscribeConfig:
+        return TranscribeConfig()
 
     @computed_field  # type: ignore[prop-decorator]
     @cached_property
