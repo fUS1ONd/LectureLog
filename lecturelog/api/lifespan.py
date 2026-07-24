@@ -8,7 +8,11 @@ from pathlib import Path
 from fastapi import FastAPI
 from openai import AsyncOpenAI
 
-from lecturelog.application.factories import storage_factory, webhook_notifier_factory
+from lecturelog.application.factories import (
+    storage_factory,
+    transcriber_factory,
+    webhook_notifier_factory,
+)
 from lecturelog.application.pipeline_service import PipelineService
 from lecturelog.application.progress_plan import ProgressPlan
 from lecturelog.application.worker import PipelineWorker
@@ -23,7 +27,6 @@ from lecturelog.infrastructure.media.video_ingestor import VideoIngestor
 from lecturelog.infrastructure.persistence.engine import make_engine, make_session_factory
 from lecturelog.infrastructure.persistence.task_repository import PostgresTaskRepository
 from lecturelog.infrastructure.structurize.gemini_structurizer import GeminiStructurizer
-from lecturelog.infrastructure.transcribe.groq_transcriber import GroqTranscriber
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +52,19 @@ async def lifespan(app: FastAPI):
     cooldown = ModelCooldown()
     llm = LlmClient(openai_client, cooldown)
 
-    transcriber = GroqTranscriber(groq_api_keys=cfg.groq.keys)
+    transcriber = transcriber_factory(cfg.transcribe)
+    transcribe_model = (
+        "whisper-large-v3" if cfg.transcribe.provider == "groq" else cfg.transcribe.deepgram_model
+    )
+    transcribe_language = "auto"
+    if cfg.transcribe.provider == "deepgram" and not cfg.transcribe.deepgram_detect_language:
+        transcribe_language = cfg.transcribe.deepgram_language
+    logger.info(
+        "STT включён: provider=%s model=%s language=%s",
+        cfg.transcribe.provider,
+        transcribe_model,
+        transcribe_language,
+    )
     structurizer = GeminiStructurizer(
         gemini_client=llm,
         split_models=cfg.llm.split_models,
@@ -103,7 +118,10 @@ async def lifespan(app: FastAPI):
         structurizer=structurizer,
         audio_cutter=FfmpegAudioCutter(),
         video_cutter=FfmpegVideoCutter(),
-        ingestor=VideoIngestor(cookie_store=cookie_store),
+        ingestor=VideoIngestor(
+            cookie_store=cookie_store,
+            target_resolution=cfg.media.target_resolution,
+        ),
         exporter=ObsidianExporter(),
         progress_plan_factory=ProgressPlan.for_audio,
         webhook_notifier=notifier,

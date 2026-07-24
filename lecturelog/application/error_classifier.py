@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 
 from lecturelog.domain.enums import ErrorCode
+from lecturelog.domain.exceptions import MediaIngestError, MediaIngestReason
 
 # Подстроки-сигналы лимита. LlmClient (infrastructure/llm/llm_client.py) при
 # исчерпании ретраев оборачивает исходную ошибку провайдера в RuntimeError с
@@ -24,6 +25,18 @@ def classify_error(exc: BaseException) -> ErrorCode:
     # 1) HTTP-статус от Groq (httpx.HTTPStatusError несёт response.status_code).
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (429, 503):
         return ErrorCode.RATE_LIMIT
+    if isinstance(exc, MediaIngestError):
+        if exc.reason is MediaIngestReason.RATE_LIMIT:
+            return ErrorCode.RATE_LIMIT
+        if exc.reason is MediaIngestReason.AUTH_REQUIRED and exc.source_kind == "youtube":
+            return ErrorCode.COOKIES_INVALID
+        if exc.reason in {
+            MediaIngestReason.NOT_FOUND,
+            MediaIngestReason.AUTH_REQUIRED,
+            MediaIngestReason.EXTRACTOR,
+        }:
+            return ErrorCode.BAD_INPUT
+        return ErrorCode.INTERNAL
     # 2) Типовые сигналы битого/нераспознанного входа.
     if isinstance(exc, (FileNotFoundError, ValueError)):
         return ErrorCode.BAD_INPUT

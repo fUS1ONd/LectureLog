@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from functools import cached_property, lru_cache
+from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import Field, computed_field
+from pydantic import Field, SecretStr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BASE = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -12,31 +14,67 @@ def _split_csv(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-class GroqConfig(BaseSettings):
+class TranscribeConfig(BaseSettings):
     model_config = _BASE
-    api_keys_raw: str = Field(alias="GROQ_API_KEYS")
+    provider: Literal["groq", "deepgram"] = Field("groq", alias="TRANSCRIBE_PROVIDER")
+    groq_api_keys_raw: str = Field("", alias="GROQ_API_KEYS")
+    deepgram_api_key: SecretStr | None = Field(None, alias="DEEPGRAM_API_KEY")
+    deepgram_base_url: str = Field("https://api.deepgram.com", alias="DEEPGRAM_BASE_URL")
+    deepgram_model: str = Field("nova-3", alias="DEEPGRAM_MODEL")
+    deepgram_language: str = Field("ru", alias="DEEPGRAM_LANGUAGE")
+    deepgram_detect_language: bool = Field(False, alias="DEEPGRAM_DETECT_LANGUAGE")
+    deepgram_utt_split: float = Field(0.8, alias="DEEPGRAM_UTT_SPLIT", gt=0)
+
+    @model_validator(mode="after")
+    def validate_provider(self) -> TranscribeConfig:
+        parts = urlsplit(self.deepgram_base_url)
+        allowed_hosts = {
+            "api.deepgram.com",
+            "api.eu.deepgram.com",
+            "api.au.deepgram.com",
+        }
+        if (
+            parts.scheme != "https"
+            or parts.hostname not in allowed_hosts
+            or parts.username is not None
+            or parts.password is not None
+            or parts.query
+            or parts.fragment
+            or parts.path not in ("", "/")
+        ):
+            raise ValueError("DEEPGRAM_BASE_URL должен быть официальным HTTPS endpoint Deepgram")
+        self.deepgram_base_url = self.deepgram_base_url.rstrip("/")
+        if self.provider == "groq" and not self.groq_keys:
+            raise ValueError("GROQ_API_KEYS обязателен при TRANSCRIBE_PROVIDER=groq")
+        if self.provider == "deepgram" and (
+            self.deepgram_api_key is None or not self.deepgram_api_key.get_secret_value().strip()
+        ):
+            raise ValueError("DEEPGRAM_API_KEY обязателен при TRANSCRIBE_PROVIDER=deepgram")
+        return self
 
     @property
-    def keys(self) -> list[str]:
-        return _split_csv(self.api_keys_raw)
+    def groq_keys(self) -> list[str]:
+        return _split_csv(self.groq_api_keys_raw)
 
 
 class LlmConfig(BaseSettings):
     # Транспорт LLM переведён на OpenRouter (BYOK): один ключ и base_url
     # вместо пула ключей Gemini. Модели указываются с префиксом провайдера
-    # (например, "google/gemini-3.5-flash").
+    # (например, "google/gemini-3.6-flash").
     model_config = _BASE
     openrouter_key: str = Field(alias="OPENROUTER_API_KEY")
     base_url: str = Field("https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL")
 
     models_split: str = Field(
-        "google/gemini-3.5-flash,google/gemini-3-flash-preview", alias="LLM_MODELS_SPLIT"
+        "google/gemini-3.6-flash,google/gemini-3.5-flash,google/gemini-3.5-flash-lite",
+        alias="LLM_MODELS_SPLIT",
     )
     models_subsplit: str = Field(
-        "google/gemini-3.5-flash,google/gemini-3-flash-preview", alias="LLM_MODELS_SUBSPLIT"
+        "google/gemini-3.6-flash,google/gemini-3.5-flash,google/gemini-3.5-flash-lite",
+        alias="LLM_MODELS_SUBSPLIT",
     )
     models_render: str = Field(
-        "google/gemini-3.1-flash-lite,google/gemini-3.5-flash,google/gemini-3-flash-preview",
+        "google/gemini-3.5-flash-lite,google/gemini-3.6-flash,google/gemini-3.5-flash",
         alias="LLM_MODELS_RENDER",
     )
     concurrency_subsplit: int = Field(2, alias="LLM_CONCURRENCY_SUBSPLIT")
@@ -67,7 +105,7 @@ class FramesConfig(BaseSettings):
     model_config = _BASE
     enabled: bool = Field(True, alias="FRAMES_ENABLED")
     models_raw: str = Field(
-        "google/gemini-3.1-flash-lite,google/gemini-3.5-flash,google/gemini-3-flash-preview",
+        "google/gemini-3.5-flash-lite,google/gemini-3.6-flash,google/gemini-3.5-flash",
         alias="LLM_MODELS_VIDEO_SLIDES",
     )
     effort: str = Field("medium", alias="LLM_EFFORT_VIDEO_SLIDES")
@@ -76,7 +114,7 @@ class FramesConfig(BaseSettings):
     # На medium модель недетерминированно путала слайды с доской (реальный
     # кейс: ч/б board-рендер слайдовых сегментов). QC — на дешёвом списке выше.
     classify_models_raw: str = Field(
-        "google/gemini-3.5-flash,google/gemini-3-flash-preview,google/gemini-3.1-flash-lite",
+        "google/gemini-3.6-flash,google/gemini-3.5-flash,google/gemini-3.5-flash-lite",
         alias="LLM_MODELS_FRAMES_CLASSIFY",
     )
     classify_effort: str = Field("high", alias="LLM_EFFORT_FRAMES_CLASSIFY")
@@ -113,6 +151,27 @@ class WorkerConfig(BaseSettings):
     max_concurrent_tasks: int = Field(2, alias="MAX_CONCURRENT_TASKS")
 
 
+class MediaConfig(BaseSettings):
+    model_config = _BASE
+    target_resolution: str = Field("720", alias="VIDEO_TARGET_RESOLUTION")
+
+    @field_validator("target_resolution")
+    @classmethod
+    def validate_target_resolution(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized == "best":
+            return normalized
+        try:
+            resolution = int(normalized)
+        except ValueError as exc:
+            raise ValueError(
+                "VIDEO_TARGET_RESOLUTION должен быть best или числом 144..4320"
+            ) from exc
+        if not 144 <= resolution <= 4320:
+            raise ValueError("VIDEO_TARGET_RESOLUTION должен быть в диапазоне 144..4320")
+        return str(resolution)
+
+
 class WebhookConfig(BaseSettings):
     # Оба поля опциональны: режим вебхука включается только при заданном callback_url.
     # Без URL движок работает автономно (поллинг-эндпоинты), поведение не меняется.
@@ -127,22 +186,23 @@ class AppConfig(BaseSettings):
     model_config = _BASE
 
     def model_post_init(self, __context: object) -> None:
-        # Форсируем создание под-конфигов сразу, чтобы required-поля
-        # (GROQ_API_KEYS и т.д.) валидировались в момент построения AppConfig.
+        # Форсируем создание под-конфигов сразу, чтобы ключ выбранного
+        # STT-провайдера и остальные required-поля проверялись при построении AppConfig.
         _ = (
-            self.groq,
+            self.transcribe,
             self.llm,
             self.database,
             self.s3,
             self.worker,
+            self.media,
             self.webhook,
             self.frames,
         )
 
     @computed_field  # type: ignore[prop-decorator]
     @cached_property
-    def groq(self) -> GroqConfig:
-        return GroqConfig()
+    def transcribe(self) -> TranscribeConfig:
+        return TranscribeConfig()
 
     @computed_field  # type: ignore[prop-decorator]
     @cached_property
@@ -163,6 +223,11 @@ class AppConfig(BaseSettings):
     @cached_property
     def worker(self) -> WorkerConfig:
         return WorkerConfig()
+
+    @computed_field  # type: ignore[prop-decorator]
+    @cached_property
+    def media(self) -> MediaConfig:
+        return MediaConfig()
 
     @computed_field  # type: ignore[prop-decorator]
     @cached_property

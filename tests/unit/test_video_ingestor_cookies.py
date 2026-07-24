@@ -37,10 +37,10 @@ def captured(monkeypatch, tmp_path):
             returncode = 0
 
             async def communicate(self):
-                # Эмулируем создание выходного файла yt-dlp.
-                out = Path(argv[argv.index("-o") + 1])
+                template = argv[argv.index("-o") + 1]
+                out = Path(template.replace("%(ext)s", "mp4"))
                 out.write_bytes(b"video")
-                return (b"", b"")
+                return (f"{out}\n".encode(), b"")
 
         return P()
 
@@ -62,6 +62,10 @@ async def test_download_uses_cookies_and_deno(captured, tmp_path):
     assert captured["cookies_content"] == b"COOKIEDATA"
     assert "--js-runtimes" in argv and "deno" in argv
     assert "--remote-components" in argv and "ejs:github" in argv
+    assert "bv*+ba/b" in argv
+    assert "res:720,proto:https" in argv
+    assert "--no-playlist" in argv
+    assert argv[argv.index("--playlist-items") + 1] == "1"
     # БЕЗОПАСНОСТЬ: cookies-файл лежит ВНЕ output-директории (не в расшаренном томе).
     cookies_path = Path(argv[argv.index("--cookies") + 1])
     assert out_dir.resolve() not in cookies_path.resolve().parents

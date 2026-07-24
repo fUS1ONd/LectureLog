@@ -29,7 +29,63 @@ def test_groq_keys_parsed_and_trimmed(monkeypatch):
     for k, v in _env().items():
         monkeypatch.setenv(k, v)
     cfg = AppConfig()
-    assert cfg.groq.keys == ["g1", "g2"]
+    assert cfg.transcribe.groq_keys == ["g1", "g2"]
+
+
+def test_deepgram_provider_needs_only_deepgram_key(monkeypatch):
+    for k, v in _env(
+        TRANSCRIBE_PROVIDER="deepgram",
+        GROQ_API_KEYS="",
+        DEEPGRAM_API_KEY="dg-secret",
+    ).items():
+        monkeypatch.setenv(k, v)
+    cfg = AppConfig()
+    assert cfg.transcribe.provider == "deepgram"
+    assert cfg.transcribe.deepgram_model == "nova-3"
+    assert cfg.transcribe.deepgram_detect_language is False
+    assert cfg.transcribe.deepgram_api_key.get_secret_value() == "dg-secret"
+    assert "dg-secret" not in repr(cfg.transcribe)
+
+
+def test_deepgram_language_detection_reads_boolean(monkeypatch):
+    for k, v in _env(
+        TRANSCRIBE_PROVIDER="deepgram",
+        DEEPGRAM_API_KEY="dg-secret",
+        DEEPGRAM_DETECT_LANGUAGE="true",
+    ).items():
+        monkeypatch.setenv(k, v)
+    assert AppConfig().transcribe.deepgram_detect_language is True
+
+
+def test_deepgram_provider_rejects_empty_key(monkeypatch):
+    for k, v in _env(
+        TRANSCRIBE_PROVIDER="deepgram",
+        GROQ_API_KEYS="",
+        DEEPGRAM_API_KEY="",
+    ).items():
+        monkeypatch.setenv(k, v)
+    with pytest.raises(Exception, match="DEEPGRAM_API_KEY"):  # noqa: B017
+        AppConfig()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://api.deepgram.com",
+        "https://evil.example",
+        "https://user@api.deepgram.com",
+        "https://api.deepgram.com?x=1",
+    ],
+)
+def test_deepgram_base_url_rejects_unsafe_endpoints(monkeypatch, url):
+    for k, v in _env(
+        TRANSCRIBE_PROVIDER="deepgram",
+        DEEPGRAM_API_KEY="dg-secret",
+        DEEPGRAM_BASE_URL=url,
+    ).items():
+        monkeypatch.setenv(k, v)
+    with pytest.raises(Exception, match="DEEPGRAM_BASE_URL"):  # noqa: B017
+        AppConfig()
 
 
 def test_llm_models_split_into_lists(monkeypatch):
@@ -44,6 +100,34 @@ def test_worker_default_concurrency(monkeypatch):
         monkeypatch.setenv(k, v)
     cfg = AppConfig()
     assert cfg.worker.max_concurrent_tasks == 2
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, "720"),
+        ("best", "best"),
+        ("BEST", "best"),
+        ("1080", "1080"),
+        (" 720 ", "720"),
+    ],
+)
+def test_media_target_resolution(monkeypatch, raw, expected):
+    for k, v in _env().items():
+        monkeypatch.setenv(k, v)
+    if raw is None:
+        monkeypatch.delenv("VIDEO_TARGET_RESOLUTION", raising=False)
+    else:
+        monkeypatch.setenv("VIDEO_TARGET_RESOLUTION", raw)
+    assert AppConfig().media.target_resolution == expected
+
+
+@pytest.mark.parametrize("raw", ["143", "4321", "720p", "", "-1"])
+def test_media_target_resolution_rejects_invalid_value(monkeypatch, raw):
+    for k, v in _env(VIDEO_TARGET_RESOLUTION=raw).items():
+        monkeypatch.setenv(k, v)
+    with pytest.raises(Exception, match="VIDEO_TARGET_RESOLUTION"):  # noqa: B017
+        AppConfig()
 
 
 def test_missing_required_key_raises(monkeypatch):
@@ -103,11 +187,11 @@ def test_frames_config_defaults(monkeypatch):
         monkeypatch.setenv(k, v)
     cfg = AppConfig()
     assert cfg.frames.enabled is True
-    assert cfg.frames.models[0] == "google/gemini-3.1-flash-lite"
+    assert cfg.frames.models[0] == "google/gemini-3.5-flash-lite"
     # Классификация режимов — на тяжёлой модели с бóльшим effort (1-2 вызова);
     # high: её решения самые нагруженные, а на medium модель недетерминированно
     # путала слайды с доской (ч/б board-рендер на слайдовых лекциях)
-    assert cfg.frames.classify_models[0] == "google/gemini-3.5-flash"
+    assert cfg.frames.classify_models[0] == "google/gemini-3.6-flash"
     assert cfg.frames.classify_effort == "high"
 
 

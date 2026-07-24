@@ -20,7 +20,7 @@ class UsageAccumulator:
         """Зерно транскрибации: audio_seconds (из ffprobe), provider, model."""
         self.usage["transcribe"] = {
             "audio_seconds": int(payload.get("audio_seconds", 0)),
-            "provider": payload.get("provider", "groq"),
+            "provider": payload.get("provider", "unknown"),
             "model": payload.get("model"),
             "raw": {},
         }
