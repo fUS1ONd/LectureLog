@@ -393,6 +393,15 @@ class PipelineService:
             export_result = await self._exporter.export(**export_kwargs)
             output_root = export_result.output_root
 
+            alignment_diagnostic = (
+                work_dir / "structurize" / "document-slide-alignment.json"
+            )
+            if alignment_diagnostic.is_file():
+                try:
+                    shutil.copy2(alignment_diagnostic, output_root / alignment_diagnostic.name)
+                except OSError as error:
+                    logger.warning("document alignment diagnostics export failed: %s", error)
+
             # После DONE локальный work_dir удаляется worker-ом. Сохраняем SRT
             # рядом с экспортом, чтобы /transcript не зависел от scratch.
             if srt_path.is_file():

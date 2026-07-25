@@ -20,7 +20,10 @@ from lecturelog.infrastructure.llm.llm_client import LlmClient
 from lecturelog.infrastructure.slides.alignment.anchoring import anchor_assignment
 from lecturelog.infrastructure.slides.alignment.catalog import native_text_fallback
 from lecturelog.infrastructure.slides.alignment.diagnostics import write_diagnostic
-from lecturelog.infrastructure.slides.alignment.service import DocumentAlignmentService
+from lecturelog.infrastructure.slides.alignment.service import (
+    AlignmentTuning,
+    DocumentAlignmentService,
+)
 from lecturelog.infrastructure.srt import extract_srt_fragment, format_time
 from lecturelog.infrastructure.structurize.slide_backfill import backfill_missing_slides
 from lecturelog.infrastructure.structurize.slide_mapping import normalize_slide_mapping
@@ -66,6 +69,7 @@ class GeminiStructurizer(Structurizer):
         effort_subsplit: str,
         effort_render: str,
         document_alignment_mode: str = "legacy",
+        document_alignment_tuning: AlignmentTuning = AlignmentTuning(),
     ) -> None:
         self._gemini = gemini_client
         self._split_models = split_models
@@ -78,7 +82,13 @@ class GeminiStructurizer(Structurizer):
         self._effort_subsplit = effort_subsplit
         self._effort_render = effort_render
         self._document_alignment_mode = document_alignment_mode
-        self._document_alignment = DocumentAlignmentService()
+        self._document_alignment = DocumentAlignmentService(
+            llm=gemini_client,
+            models=subsplit_models,
+            effort=effort_subsplit,
+            prompts_dir=self._prompts_dir,
+            tuning=document_alignment_tuning,
+        )
 
     def _read_prompt(self, filename: str) -> str:
         return (self._prompts_dir / filename).read_text(encoding="utf-8")
@@ -292,16 +302,11 @@ class GeminiStructurizer(Structurizer):
         v2_assignments: tuple[SlideAssignment, ...] = ()
         if slide_assets and self._document_alignment_mode in {"shadow", "v2"}:
             try:
-                v2_assignments = self._document_alignment.align(
+                v2_assignments = await self._document_alignment.align(
                     assets=slide_assets,
                     section_layout=topics_sections,
                     srt_content=srt_content,
-                )
-                write_diagnostic(
-                    output_dir / "document-slide-alignment.json",
-                    mode=self._document_alignment_mode,
-                    assignments=v2_assignments,
-                    prompt_versions={"catalog": "native-text-v1", "alignment": "dp-v1"},
+                    on_usage=on_usage,
                 )
             except Exception as error:  # noqa: BLE001 - explicit outer fail-safe
                 logger.exception(
@@ -513,6 +518,16 @@ class GeminiStructurizer(Structurizer):
                 topic.slide_indices = sorted(
                     {slide for section in topic.sections for slide in section.slide_indices}
                 )
+            try:
+                write_diagnostic(
+                    output_dir / "document-slide-alignment.json",
+                    mode=self._document_alignment_mode,
+                    assignments=v2_assignments,
+                    placements=tuple(placements),
+                    prompt_versions={"catalog": "native-text-v1", "alignment": "dp-v1"},
+                )
+            except Exception as error:  # noqa: BLE001 - diagnostics must never fail processing
+                logger.warning("document alignment diagnostics write failed: %s", error)
             return StructurizeResult(result, v2_assignments, tuple(placements))
 
         assignments: list[SlideAssignment] = []
@@ -571,4 +586,15 @@ class GeminiStructurizer(Structurizer):
                         fallback_reason="legacy_mapping",
                     )
                 )
+        if self._document_alignment_mode == "shadow":
+            try:
+                write_diagnostic(
+                    output_dir / "document-slide-alignment.json",
+                    mode=self._document_alignment_mode,
+                    assignments=v2_assignments,
+                    placements=tuple(placements),
+                    prompt_versions={"catalog": "native-text-v1", "alignment": "dp-v1"},
+                )
+            except Exception as error:  # noqa: BLE001 - diagnostics must never fail processing
+                logger.warning("document alignment diagnostics write failed: %s", error)
         return StructurizeResult(result, tuple(assignments), tuple(placements))

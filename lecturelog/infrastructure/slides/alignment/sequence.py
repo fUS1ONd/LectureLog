@@ -13,6 +13,9 @@ class AlignmentWeights:
     jump_penalty: float = 0.08
     explicit_bonus: float = 4.0
     strong_bonus: float = 2.0
+    lexical_weight: float = 1.0
+    visual_weight: float = 3.0
+    progressive_same_section_bonus: float = 0.75
 
 
 def align_sequence(
@@ -21,11 +24,21 @@ def align_sequence(
     relations: tuple[SlideRelation, ...] = (),
     weights: AlignmentWeights = AlignmentWeights(),
 ) -> tuple[SlideAssignment, ...]:
-    duplicate_of = {relation.slide_num: relation.canonical_slide_num for relation in relations}
+    duplicate_of = {
+        relation.slide_num: relation.canonical_slide_num
+        for relation in relations
+        if relation.kind == "exact_duplicate"
+    }
+    progressive_of = {
+        relation.slide_num: relation.canonical_slide_num
+        for relation in relations
+        if relation.kind == "progressive_build"
+    }
     best_total, best_path = _solve(
         slide_nums,
         candidates,
         duplicate_of,
+        progressive_of,
         weights,
     )
     assignments: list[SlideAssignment] = []
@@ -50,6 +63,7 @@ def align_sequence(
             slide_nums,
             candidates,
             duplicate_of,
+            progressive_of,
             weights,
             forbidden=(index, chosen.global_section_id),
         )
@@ -73,7 +87,12 @@ def align_sequence(
                 else None,
                 assignment_confidence=confidence,
                 score=best_score,
-                reason_code=f"semantic_{chosen.semantic_tier}",
+                reason_code=(
+                    f"semantic_{chosen.semantic_tier}"
+                    f":lexical={chosen.lexical_score:.3f}"
+                    f":visual={(chosen.visual_score or 0.0):.3f}"
+                    f":margin={margin:.3f}"
+                ),
             )
         )
     return tuple(assignments)
@@ -83,6 +102,7 @@ def _solve(
     slide_nums: list[int],
     candidates: dict[int, tuple[SlideCandidate, ...]],
     duplicate_of: dict[int, int],
+    progressive_of: dict[int, int],
     weights: AlignmentWeights,
     forbidden: tuple[int, int] | None = None,
 ) -> tuple[float, list[SlideCandidate | None]]:
@@ -115,6 +135,11 @@ def _solve(
                         score -= weights.backtrack_penalty * abs(delta)
                     elif delta > 1:
                         score -= weights.jump_penalty * (delta - 1)
+                    if (
+                        slide_num in progressive_of
+                        and option.global_section_id == previous_section
+                    ):
+                        score += weights.progressive_same_section_bonus
                 existing = next_states.get(section)
                 if existing is None or score > existing[0]:
                     next_states[section] = (score, path + [option])
@@ -131,6 +156,8 @@ def _candidate_score(candidate: SlideCandidate | None, weights: AlignmentWeights
         "weak": 0.0,
         "none": -1.0,
     }[candidate.semantic_tier]
-    return candidate.lexical_score + bonus + (candidate.visual_score or 0.0) * 3.0
-
-
+    return (
+        candidate.lexical_score * weights.lexical_weight
+        + bonus
+        + (candidate.visual_score or 0.0) * weights.visual_weight
+    )

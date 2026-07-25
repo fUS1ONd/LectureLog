@@ -1,4 +1,4 @@
-from lecturelog.domain.slides import SlideCandidate
+from lecturelog.domain.slides import SlideCandidate, SlideRelation
 from lecturelog.infrastructure.slides.alignment.sequence import align_sequence
 
 
@@ -33,3 +33,12 @@ def test_sequence_softly_allows_strong_backtrack() -> None:
         {1: (_candidate(1, 2, 8),), 2: (_candidate(2, 0, 12),)},
     )
     assert [item.global_section_id for item in result] == [2, 0]
+
+
+def test_progressive_build_is_not_suppressed_as_duplicate() -> None:
+    result = align_sequence(
+        [1, 2],
+        {1: (_candidate(1, 0, 5),), 2: (_candidate(2, 0, 5),)},
+        (SlideRelation(2, "progressive_build", "g", 1),),
+    )
+    assert [item.match_status for item in result] == ["discussed", "discussed"]

@@ -1,0 +1,1 @@
+"""Prompt version 1."""

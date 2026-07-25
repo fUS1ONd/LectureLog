@@ -65,6 +65,24 @@ def _rate_limit_error(raw_metadata: str) -> openai.RateLimitError:
     return openai.RateLimitError(message="rate limited", response=response, body=body)
 
 
+def _authentication_error(
+    *, byok: bool, sdk_unwrapped: bool = False
+) -> openai.AuthenticationError:
+    error_body = {
+        "message": "authentication failed",
+        "metadata": {
+            "is_byok": byok,
+            "provider_name": "Google AI Studio" if byok else "OpenRouter",
+        },
+    }
+    body = error_body if sdk_unwrapped else {"error": error_body}
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    response = httpx.Response(401, request=request, json=body)
+    return openai.AuthenticationError(
+        message="authentication failed", response=response, body=body
+    )
+
+
 _RPM_RAW = json.dumps(
     {
         "error": {
@@ -239,6 +257,44 @@ async def test_non_rate_limit_error_propagates():
     client = LlmClient(FakeAsyncOpenAI([ValueError("boom")]), ModelCooldown())
     with pytest.raises(ValueError):
         await client.call("q", models=["m1"])
+
+
+@pytest.mark.asyncio
+async def test_google_byok_auth_error_falls_back_to_next_model(monkeypatch):
+    import lecturelog.infrastructure.llm.llm_client as mod
+
+    monkeypatch.setattr(mod, "_BYOK_AUTH_COOLDOWN_S", 60.0)
+    cooldown = SpyModelCooldown()
+    fake = FakeAsyncOpenAI([_authentication_error(byok=True), _resp("fallback ok")])
+    client = LlmClient(fake, cooldown)
+
+    assert await client.call("q", models=["m1", "m2"]) == "fallback ok"
+    assert [item["model"] for item in fake.chat.completions.kwargs_history] == ["m1", "m2"]
+    assert cooldown.marked == [("m1", 60.0)]
+
+
+@pytest.mark.asyncio
+async def test_google_byok_auth_error_with_sdk_unwrapped_body_falls_back(monkeypatch):
+    import lecturelog.infrastructure.llm.llm_client as mod
+
+    monkeypatch.setattr(mod, "_BYOK_AUTH_COOLDOWN_S", 60.0)
+    fake = FakeAsyncOpenAI(
+        [_authentication_error(byok=True, sdk_unwrapped=True), _resp("fallback ok")]
+    )
+    client = LlmClient(fake, ModelCooldown())
+
+    assert await client.call("q", models=["m1", "m2"]) == "fallback ok"
+
+
+@pytest.mark.asyncio
+async def test_openrouter_auth_error_does_not_fallback():
+    client = LlmClient(
+        FakeAsyncOpenAI([_authentication_error(byok=False)]),
+        ModelCooldown(),
+    )
+
+    with pytest.raises(openai.AuthenticationError):
+        await client.call("q", models=["m1", "m2"])
 
 
 def _timeout_error() -> openai.APITimeoutError:

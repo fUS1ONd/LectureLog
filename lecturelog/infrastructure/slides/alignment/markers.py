@@ -42,16 +42,29 @@ def strip_slide_markers(markdown: str) -> str:
 
 
 def inject_marker(markdown: str, *, slide_num: int, block_index: int, side: str) -> str:
-    blocks = list(parse_markdown_blocks(strip_slide_markers(markdown)))
-    if not blocks or not 0 <= block_index < len(blocks):
+    blocks = list(parse_markdown_blocks(markdown))
+    marker_text = f"<!-- slide:{slide_num} -->"
+    existing = [block for block in blocks if block.text.strip() == marker_text]
+    if len(existing) == 1:
+        return markdown.strip()
+    if existing:
+        raise ValueError("Нарушена уникальность marker")
+
+    content_positions = [
+        index for index, block in enumerate(blocks) if not _MARKER_RE.fullmatch(block.text.strip())
+    ]
+    if not content_positions or not 0 <= block_index < len(content_positions):
         raise ValueError("block_index вне Markdown")
     if side not in {"before", "after"}:
         raise ValueError("side должен быть before/after")
-    marker = MarkdownBlock(f"<!-- slide:{slide_num} -->", False)
-    position = block_index if side == "before" else block_index + 1
+    marker = MarkdownBlock(marker_text, False)
+    content_position = content_positions[block_index]
+    position = content_position if side == "before" else content_position + 1
+    if side == "after":
+        while position < len(blocks) and _MARKER_RE.fullmatch(blocks[position].text.strip()):
+            position += 1
     blocks.insert(position, marker)
     result = "\n\n".join(block.text for block in blocks).strip()
-    if result.count(f"<!-- slide:{slide_num} -->") != 1:
+    if result.count(marker_text) != 1:
         raise ValueError("Нарушена уникальность marker")
     return result
-

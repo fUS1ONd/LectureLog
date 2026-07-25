@@ -26,6 +26,7 @@ from lecturelog.infrastructure.media.video_cutter import FfmpegVideoCutter
 from lecturelog.infrastructure.media.video_ingestor import VideoIngestor
 from lecturelog.infrastructure.persistence.engine import make_engine, make_session_factory
 from lecturelog.infrastructure.persistence.task_repository import PostgresTaskRepository
+from lecturelog.infrastructure.slides.alignment.service import AlignmentTuning
 from lecturelog.infrastructure.structurize.gemini_structurizer import GeminiStructurizer
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,11 @@ async def lifespan(app: FastAPI):
         effort_subsplit=cfg.llm.effort_subsplit,
         effort_render=cfg.llm.effort_render,
         document_alignment_mode=cfg.document_slides.alignment_mode,
+        document_alignment_tuning=AlignmentTuning(
+            candidate_limit=cfg.document_slides.candidate_limit,
+            neighbor_radius=cfg.document_slides.neighbor_radius,
+            deck_min_supported_ratio=cfg.document_slides.deck_min_supported_ratio,
+        ),
     )
     # Опциональный вебхук: включается только при заданных URL и секрете.
     notifier = webhook_notifier_factory(cfg.webhook.callback_url, cfg.webhook.secret)

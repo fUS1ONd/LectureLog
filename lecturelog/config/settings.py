@@ -74,7 +74,7 @@ class LlmConfig(BaseSettings):
         alias="LLM_MODELS_SUBSPLIT",
     )
     models_render: str = Field(
-        "google/gemini-3.5-flash-lite,google/gemini-3.6-flash,google/gemini-3.5-flash",
+        "google/gemini-3.5-flash-lite,google/gemini-3.5-flash,google/gemini-3.6-flash",
         alias="LLM_MODELS_RENDER",
     )
     concurrency_subsplit: int = Field(2, alias="LLM_CONCURRENCY_SUBSPLIT")
@@ -132,6 +132,15 @@ class DocumentSlidesConfig(BaseSettings):
     model_config = _BASE
     alignment_mode: Literal["legacy", "shadow", "v2"] = Field(
         "legacy", alias="DOCUMENT_SLIDE_ALIGNMENT_MODE"
+    )
+    candidate_limit: int = Field(
+        5, ge=1, le=12, alias="DOCUMENT_SLIDE_CANDIDATE_LIMIT"
+    )
+    neighbor_radius: int = Field(
+        1, ge=0, le=3, alias="DOCUMENT_SLIDE_NEIGHBOR_RADIUS"
+    )
+    deck_min_supported_ratio: float = Field(
+        0.08, ge=0.0, le=1.0, alias="DOCUMENT_SLIDE_DECK_MIN_SUPPORTED_RATIO"
     )
 
 

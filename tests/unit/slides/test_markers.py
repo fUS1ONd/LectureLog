@@ -16,3 +16,20 @@ def test_marker_rejects_invalid_anchor() -> None:
     with pytest.raises(ValueError):
         inject_marker("text", slide_num=1, block_index=4, side="after")
 
+
+def test_multiple_markers_are_preserved_across_sequential_injections() -> None:
+    markdown = "Первый абзац.\n\nВторой абзац."
+
+    with_first = inject_marker(markdown, slide_num=1, block_index=0, side="after")
+    result = inject_marker(with_first, slide_num=2, block_index=0, side="after")
+
+    assert result.count("<!-- slide:1 -->") == 1
+    assert result.count("<!-- slide:2 -->") == 1
+    assert result.index("<!-- slide:1 -->") < result.index("<!-- slide:2 -->")
+    assert result.endswith("Второй абзац.")
+
+
+def test_repeated_injection_of_same_marker_is_idempotent() -> None:
+    once = inject_marker("Абзац.", slide_num=1, block_index=0, side="after")
+
+    assert inject_marker(once, slide_num=1, block_index=0, side="after") == once

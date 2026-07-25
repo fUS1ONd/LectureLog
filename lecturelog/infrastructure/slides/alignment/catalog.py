@@ -69,3 +69,40 @@ def detect_exact_duplicates(assets: list[SlideAsset]) -> tuple[SlideRelation, ..
                 SlideRelation(asset.slide_num, "exact_duplicate", digest[:12], canonical)
             )
     return tuple(relations)
+
+
+def detect_progressive_builds(
+    assets: list[SlideAsset],
+    *,
+    containment_threshold: float = 0.72,
+) -> tuple[SlideRelation, ...]:
+    """Detect adjacent pages where the latter adds material to the former.
+
+    This is deliberately conservative: progressive pages are *related*, not
+    duplicates, and therefore must remain eligible for placement.
+    """
+    relations: list[SlideRelation] = []
+    for previous, current in zip(assets, assets[1:], strict=False):
+        previous_tokens = _catalog_tokens(previous.extracted_text or "")
+        current_tokens = _catalog_tokens(current.extracted_text or "")
+        if len(previous_tokens) < 4 or len(current_tokens) <= len(previous_tokens):
+            continue
+        containment = len(previous_tokens & current_tokens) / len(previous_tokens)
+        if containment >= containment_threshold:
+            relations.append(
+                SlideRelation(
+                    current.slide_num,
+                    "progressive_build",
+                    f"progressive:{previous.slide_num}",
+                    previous.slide_num,
+                )
+            )
+    return tuple(relations)
+
+
+def _catalog_tokens(text: str) -> set[str]:
+    return {
+        token.casefold()
+        for token in text.replace("\n", " ").split()
+        if len(token) >= 3
+    }

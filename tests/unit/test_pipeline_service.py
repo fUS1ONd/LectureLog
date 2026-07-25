@@ -60,6 +60,19 @@ class FakeStructurizer:
         return self._topics
 
 
+class DiagnosticStructurizer(FakeStructurizer):
+    async def structurize(
+        self, srt_path, slide_images, output_dir, on_progress=None, on_usage=None
+    ):
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        (Path(output_dir) / "document-slide-alignment.json").write_text(
+            '{"schema_version": 1}', encoding="utf-8"
+        )
+        return await super().structurize(
+            srt_path, slide_images, output_dir, on_progress, on_usage
+        )
+
+
 class FakeCutter:
     async def cut(self, source_path, sections, output_dir):
         # Создаём реальные файлы фрагментов на диске (нужно для раскладки/заливки).
@@ -150,6 +163,39 @@ async def test_output_uploaded_as_objects_and_structure_written(tmp_path):
     subtopic = structure["sections"][0]["subtopics"][0]
     assert subtopic["media"]["key"] in keys
     assert subtopic["content_md"]  # content_md не пуст
+
+
+@pytest.mark.asyncio
+async def test_alignment_diagnostic_is_included_in_exported_result(tmp_path):
+    repo = InMemoryRepo()
+    task = Task(task_id="diagnostic", source_kind="audio")
+    await repo.create(task)
+    srt = tmp_path / "t.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n", encoding="utf-8")
+    storage = FakeStorage()
+    service = PipelineService(
+        repository=repo,
+        transcriber=FakeTranscriber(srt),
+        structurizer=DiagnosticStructurizer(_topics_single()),
+        audio_cutter=FakeCutter(),
+        exporter=FakeExporter(),
+        progress_plan_factory=ProgressPlan.for_audio,
+        storage=storage,
+    )
+
+    await service.run(
+        task=task,
+        source=AudioSource(path=tmp_path / "a.mp3"),
+        slide_provider=None,
+        work_dir=tmp_path / "work",
+    )
+
+    assert (
+        storage.objects[
+            "results/diagnostic/output/document-slide-alignment.json"
+        ]
+        == b'{"schema_version": 1}'
+    )
 
 
 @pytest.mark.asyncio
