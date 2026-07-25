@@ -68,6 +68,16 @@ formatting failures, so a failed validation produces `evaluation_inconclusive` r
 than a score. Model availability and zero pricing are checked against the OpenRouter
 catalog before a completion request.
 
+For an operator-controlled OpenRouter BYOK route, roles can be overridden with
+`EVALUATION_TEXT_MODEL`, `EVALUATION_VISION_MODEL`, and
+`EVALUATION_ADJUDICATOR_MODEL`. A catalog-priced model must also be listed in
+`EVALUATION_BYOK_MODELS`; this explicit assertion prevents an accidental paid OpenRouter
+fallback from silently entering a benchmark. `EVALUATION_MAX_TOKENS` defaults to `4096`
+so OpenRouter does not reserve a model's full theoretical completion window during
+admission checks.
+For reasoning models, set `EVALUATION_REASONING_EFFORT=minimal` to preserve the bounded
+completion budget for evidence JSON instead of spending it on hidden judge reasoning.
+
 ## Reading the report
 
 The main files are:

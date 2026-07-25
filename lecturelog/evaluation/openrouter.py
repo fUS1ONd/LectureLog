@@ -1,4 +1,4 @@
-"""Reproducible, zero-cost-only OpenRouter transport for evaluation."""
+"""Reproducible free-model or explicitly approved BYOK OpenRouter transport."""
 
 from __future__ import annotations
 
@@ -18,10 +18,18 @@ from pydantic import BaseModel, ValidationError
 
 from lecturelog.evaluation.planner import RequestBudget
 
-VISION_MODEL = "google/gemma-4-26b-a4b-it:free"
-TEXT_MODEL = VISION_MODEL
-ADJUDICATOR_MODEL = VISION_MODEL
+DEFAULT_MODEL = "google/gemma-4-26b-a4b-it:free"
+TEXT_MODEL = os.getenv("EVALUATION_TEXT_MODEL", DEFAULT_MODEL)
+VISION_MODEL = os.getenv("EVALUATION_VISION_MODEL", TEXT_MODEL)
+ADJUDICATOR_MODEL = os.getenv("EVALUATION_ADJUDICATOR_MODEL", TEXT_MODEL)
 PINNED_MODELS = frozenset({TEXT_MODEL, VISION_MODEL, ADJUDICATOR_MODEL})
+BYOK_MODELS = frozenset(
+    model.strip()
+    for model in os.getenv("EVALUATION_BYOK_MODELS", "").split(",")
+    if model.strip()
+)
+MAX_COMPLETION_TOKENS = int(os.getenv("EVALUATION_MAX_TOKENS", "4096"))
+REASONING_EFFORT = os.getenv("EVALUATION_REASONING_EFFORT", "")
 
 
 class RemoteLlmDisabled(RuntimeError):
@@ -96,6 +104,8 @@ def validate_model_catalog(
     catalog: Mapping[str, Mapping[str, Any]],
     model: str,
     requirement: ModelRequirement,
+    *,
+    byok_models: frozenset[str] | None = None,
 ) -> None:
     if model == "openrouter/free":
         raise ModelValidationError("openrouter/free is never an implicit evaluator model")
@@ -103,7 +113,11 @@ def validate_model_catalog(
     if data is None:
         raise ModelValidationError(f"Pinned evaluator model is unavailable: {model}")
     pricing = data.get("pricing") or {}
-    if not (_is_zero_price(pricing.get("prompt")) and _is_zero_price(pricing.get("completion"))):
+    explicitly_byok = model in (BYOK_MODELS if byok_models is None else byok_models)
+    if not explicitly_byok and not (
+        _is_zero_price(pricing.get("prompt"))
+        and _is_zero_price(pricing.get("completion"))
+    ):
         raise ModelValidationError(f"Evaluator model is not zero-cost at runtime: {model}")
     architecture = data.get("architecture") or {}
     modalities = set(architecture.get("input_modalities") or [])
@@ -255,10 +269,13 @@ class OpenRouterJudgeClient:
         if images:
             content = [{"type": "text", "text": prompt}]
             content.extend({"type": "image_url", "image_url": {"url": image}} for image in images)
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": [{"role": "user", "content": content}],
             "temperature": 0,
+            # Avoid OpenRouter reserving the model's entire theoretical output
+            # window during credit/BYOK admission checks.
+            "max_tokens": MAX_COMPLETION_TOKENS,
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
@@ -269,6 +286,8 @@ class OpenRouterJudgeClient:
             },
             "provider": {"allow_fallbacks": False},
         }
+        if REASONING_EFFORT:
+            payload["reasoning"] = {"effort": REASONING_EFFORT, "exclude": True}
         headers = {"Authorization": f"Bearer {self.api_key}"}
         last_error: Exception | None = None
         for attempt in range(self.retries + 1):

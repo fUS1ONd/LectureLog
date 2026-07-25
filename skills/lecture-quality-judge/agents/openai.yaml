@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lecture Quality Judge"
+  short_description: "Audit lecture notes, slides, and alignment"
+  default_prompt: "Use $lecture-quality-judge to independently evaluate this generated lecture result with evidence."

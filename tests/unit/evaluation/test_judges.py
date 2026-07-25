@@ -529,6 +529,14 @@ def test_batch_rejects_short_or_missing_ids_and_reorders_complete_response():
     )
     _validate_batch_response(reordered, packets)
     assert [judgment.stable_id for judgment in reordered.judgments] == ["a", "b"]
+    typed_aliases = SimpleNamespace(
+        judgments=[
+            BlockJudgment.model_validate({**base, "stable_id": "note:block:b"}),
+            BlockJudgment.model_validate({**base, "stable_id": "note:block:a"}),
+        ]
+    )
+    _validate_batch_response(typed_aliases, packets)
+    assert [judgment.stable_id for judgment in typed_aliases.judgments] == ["a", "b"]
 
 
 def test_batch_rejects_duplicate_ids_even_when_count_matches():

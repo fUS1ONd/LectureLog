@@ -315,6 +315,16 @@ def _validate_batch_response(value: BaseModel, packets: list[JudgePacket]) -> No
     if not isinstance(judgments, list):
         raise JudgeResponseError("Batch judge response omitted judgments")
     expected = [packet.stable_id for packet in packets]
+    aliases = {
+        f"{prefix}{packet.stable_id}": packet.stable_id
+        for packet in packets
+        for prefix in ("note:block:", "section:", "slide:")
+    }
+    for judgment in judgments:
+        # Some structured-output models copy the typed evidence namespace into
+        # the packet ID. Accept only an exact, unambiguous known prefix; quotes
+        # and evidence source IDs remain subject to their original strict checks.
+        judgment.stable_id = aliases.get(judgment.stable_id, judgment.stable_id)
     actual = [judgment.stable_id for judgment in judgments]
     if len(actual) != len(expected) or len(actual) != len(set(actual)) or set(actual) != set(
         expected

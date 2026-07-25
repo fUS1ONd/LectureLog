@@ -74,6 +74,12 @@ def test_catalog_rejects_non_free_or_missing_capability():
     paid["pricing"]["completion"] = "0.1"
     with pytest.raises(ModelValidationError, match="not zero-cost"):
         validate_model_catalog({TEXT_MODEL: paid}, TEXT_MODEL, ModelRequirement())
+    validate_model_catalog(
+        {TEXT_MODEL: paid},
+        TEXT_MODEL,
+        ModelRequirement(),
+        byok_models=frozenset({TEXT_MODEL}),
+    )
     with pytest.raises(ModelValidationError, match="image input"):
         validate_model_catalog(
             {TEXT_MODEL: model_entry()}, TEXT_MODEL, ModelRequirement(image_input=True)
