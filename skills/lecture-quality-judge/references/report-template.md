@@ -3,12 +3,22 @@
 ## Scope and inventory
 
 - Inputs inspected:
+- Source hashes:
 - Sections / blocks / transcript cues / slides:
 - Missing artifacts:
 
 ## Sampling method
 
 Describe intervals, blocks, all-slide coverage, searches, and exclusions.
+
+Confirm that pass-A labels were completed before matcher diagnostics were opened.
+
+## Pass-A ground truth
+
+| Slide | Role | Discussion status | Central concepts | Preferred context | Acceptable range | Evidence |
+| ---: | --- | --- | --- | --- | --- | --- |
+
+This table must not contain matcher confidence or assignment scores.
 
 ## Scorecard
 
@@ -30,10 +40,32 @@ For each finding:
 
 ## Slide audit
 
-| Slide | Classification | Current anchor | Better context | System confidence | Evidence |
-| ---: | --- | --- | --- | --- | --- |
+| Slide | Predicted status | Topic verdict | Anchor verdict | Evidence strength | Regret | Rendering | Confidence | Evidence |
+| ---: | --- | --- | --- | --- | --- | --- | --- | --- |
 
 Include every slide. Keep ambiguous slides explicitly `reasonable_range` or `unknown`.
+
+## Slide metrics
+
+For every metric include `numerator/denominator`, percentage, and excluded unknown count.
+
+| Metric | Value | Count | Unknown/excluded |
+| --- | ---: | ---: | ---: |
+| Discussed precision |  |  |  |
+| Discussed recall |  |  |  |
+| Unmentioned false-negative rate |  |  |  |
+| Acceptable topic accuracy |  |  |  |
+| Preferred topic accuracy |  |  |  |
+| Wrong-topic rate |  |  |  |
+| Best-context hit |  |  |  |
+| Acceptable-context hit |  |  |  |
+| Materially-better-context rate |  |  |  |
+| Verified precision |  |  |  |
+| High-confidence error rate |  |  |  |
+| Collapsed-slide rate |  |  |  |
+| Rendering correctness |  |  |  |
+
+Also report maximum slides per evidence cue/anchor and appendix false positives.
 
 ## Strong evidence-backed aspects
 

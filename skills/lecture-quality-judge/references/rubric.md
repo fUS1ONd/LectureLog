@@ -39,6 +39,61 @@ coverage is weak.
 Title/divider slides may require document-role reasoning, not lexical matching. A title
 slide normally belongs at the beginning of its covered span.
 
+## Pass-A ground-truth rules
+
+Determine these labels before reading matcher output.
+
+### Discussion status
+
+- `discussed`: central content is explicitly explained or clearly paraphrased.
+- `partially_discussed`: only a meaningful subset is explained.
+- `unmentioned`: no material content is explained after a global transcript search.
+- `unknown`: transcript/slide extraction is insufficient.
+
+A repeated generic deck term is not proof that a slide was discussed. A distinctive
+entity, formula, diagram explanation, or combination of central concepts can be proof.
+
+### Slide roles
+
+Use one of:
+
+- `title`;
+- `agenda`;
+- `section_divider`;
+- `content`;
+- `summary`;
+- `reference_or_table`;
+- `visual_example`;
+- `closing`;
+- `appendix`;
+- `blank`;
+- `unknown`.
+
+Role affects placement:
+
+- title: beginning of the covered lecture/span;
+- agenda: near the beginning, not necessarily at every mentioned bullet;
+- divider: before its covered semantic range;
+- summary: any strong range covering its combined concepts;
+- content: near its direct explanation;
+- reference/table: section gallery is acceptable when no single row is narrated;
+- visual example: require image-aware checking;
+- closing: end of the covered span;
+- appendix/blank: omission from the main note is normally correct.
+
+### Evidence strength
+
+For each placement classify:
+
+- `direct`: distinctive title/concept/formula/visual relationship is explicitly supported;
+- `composite`: multiple cues together cover the slide;
+- `broad_topic_only`: same general subject without central slide content;
+- `unrelated`;
+- `unknown`.
+
+`verified` requires `direct` or strong `composite` evidence. `broad_topic_only` cannot
+justify an inline verified placement.
+
 ## Mandatory alignment checks
 
 - Inspect every `verified` assignment with low raw score or weak evidence.
@@ -47,6 +102,98 @@ slide normally belongs at the beginning of its covered span.
 - Detect many slides collapsing onto one cue, block, or section.
 - Separate assignment correctness from renderer placement correctness.
 - Allow a semantic range for summary slides instead of inventing a single exact anchor.
+
+## Required slide metrics
+
+Build the metrics from the completed per-slide audit, not from matcher scores. Exclude
+`unknown` labels from denominators and publish each denominator.
+
+### Discussion detection
+
+- `discussed_precision = true_discussed_predictions / all_discussed_predictions`
+- `discussed_recall = true_discussed_predictions / all_actually_discussed`
+- `unmentioned_false_negative_rate = discussed_but_predicted_unmentioned /
+  all_actually_discussed`
+
+Count `partially_discussed` separately and state whether it is treated as positive for a
+specific calculation.
+
+### Semantic placement
+
+- `acceptable_topic_accuracy`: current section belongs to the manually accepted semantic
+  range.
+- `preferred_topic_accuracy`: current section is among the strongest contexts.
+- `wrong_topic_rate`: placement is demonstrably outside any reasonable semantic range.
+
+Do not use numeric section distance as semantic distance. Non-adjacent sections may be
+equivalent; adjacent sections may be unrelated.
+
+### Local anchor
+
+- `best_context_hit`: current anchor is the strongest found context.
+- `acceptable_context_hit`: current anchor is within a reasonable explanatory range.
+- `materially_better_context_rate`: a clearly stronger context exists elsewhere.
+
+Record categorical anchor regret:
+
+- `none`: no materially better context;
+- `small`: better wording exists in the same local explanation;
+- `major`: current evidence is weak/unrelated and a direct explanation exists elsewhere.
+
+### Confidence
+
+- `verified_precision = correct_verified / all_verified`
+- `high_confidence_error_rate = incorrect_verified_or_probable /
+  all_verified_or_probable`
+- `unresolved_precision = truly_unsupported_unresolved / all_unresolved`
+
+An incorrect `verified` placement is always at least a major finding.
+
+### Collapse and rendering
+
+- `collapsed_slide_rate`: slides sharing an implausible cue/block/section collapse divided
+  by all audited slides;
+- maximum slides per evidence cue and per rendered anchor;
+- duplicate marker count;
+- missing marker/image count;
+- appendix false-positive count;
+- assignment-correct but rendering-wrong count.
+
+Collapse is a defect only when the grouped slides are semantically different or their
+individual evidence is unsupported.
+
+### Role-aware correctness
+
+Report semantic and rendering accuracy separately for:
+
+- title/divider/closing;
+- ordinary content;
+- summary/reference/table;
+- visual examples;
+- appendix/blank.
+
+Do not let many easy content slides hide systematic failure on navigation or visual
+slides.
+
+## Severity
+
+- `critical`: corrupt/missing output or a result that cannot be safely used.
+- `major`: materially misleading content/placement, including incorrect `verified`
+  assignment or discussed slide incorrectly relegated to appendix.
+- `warning`: localized weakness with limited reader impact.
+- `info`: diagnostic observation without a quality failure.
+
+## Comparison protocol
+
+For before/after matcher comparisons:
+
+1. Judge each result in a fresh context without reading the other report.
+2. Use the same source audio/transcript and slide document hashes.
+3. Complete both per-slide audits before comparing aggregate metrics.
+4. Compare only common, non-unknown denominators.
+5. Report regressions even when the headline verdict improves.
+6. Treat changed note text as a potential confounder for paragraph placement and disclose
+   it.
 
 ## Verdicts
 

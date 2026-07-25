@@ -30,25 +30,41 @@ State missing inputs. Mark affected dimensions `unknown`; never infer absent evi
 
 ## Workflow
 
-1. Inventory sections, note blocks, transcript cues, slides, assignments, and placements.
-2. Inspect every slide's native text or image and every assignment/placement.
+Use two passes. Do not open assignment/placement diagnostics during pass A.
+
+### Pass A: independent ground truth
+
+1. Inventory note sections, note blocks, transcript cues, and slide assets. Record source
+   hashes when available, but keep matcher assignments and placements closed.
+2. Inspect every slide's native text and image. Classify its role and central concepts.
    For more than 30 slides, work in numbered chunks of 10–15. After each chunk, retain a
    compact row and the strongest evidence; do not postpone the whole report while
    polishing prose.
-3. Sample note quality across the whole lecture:
+3. Independently label each slide `discussed`, `partially_discussed`, `unmentioned`, or
+   `unknown`. Search the full transcript, including paraphrases and visual explanations.
+4. For each discussed slide, record preferred and acceptable semantic sections/time
+   ranges. Allow multiple correct ranges for summaries and dividers.
+5. Sample note quality across the whole lecture:
    - beginning, middle, and end;
    - at least eight distributed transcript intervals for a long lecture;
    - every section flagged by deterministic checks;
    - blocks with language changes, suspicious claims, or weak structure.
-4. Search the full transcript for every slide marked `unmentioned`.
-5. For each discussed slide:
+
+### Pass B: audit the matcher
+
+6. Only now open assignments, placements, matcher scores, reason codes, and confidence.
+7. For each discussed slide:
    - identify its central concepts;
    - inspect cited evidence and local transcript context;
    - search for materially better contexts outside the assigned section;
    - classify `correct`, `reasonable_range`, `incorrect`, or `unknown`.
-6. Evaluate the dimensions and scoring anchors in
+8. For every predicted `unmentioned`, compare against pass-A discussion labels.
+9. Inspect renderer output separately from semantic assignment.
+10. Evaluate the dimensions and scoring anchors in
    [rubric.md](references/rubric.md).
-7. Return the exact structure in
+11. Compute every required slide metric from the completed manual slide audit. Include raw
+   numerators, denominators, and excluded `unknown` cases.
+12. Return the exact structure in
    [report-template.md](references/report-template.md).
 
 If execution is interrupted or budget-limited, immediately return the completed rows,
@@ -82,3 +98,11 @@ from directly proven defects.
 The parent reviewer must verify all critical findings and a sample of major findings
 against raw artifacts before accepting the verdict. Provide enough stable evidence for
 that verification without reconstructing your hidden reasoning.
+
+The parent must verify:
+
+- every incorrect `verified` placement;
+- every false-negative `unmentioned` slide;
+- every critical finding;
+- at least 20% of claimed-correct slides, selected across the deck;
+- all metric arithmetic from the per-slide table.
