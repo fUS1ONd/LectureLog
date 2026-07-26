@@ -3,12 +3,15 @@ from __future__ import annotations
 import logging
 
 from lecturelog.domain.slides import SlideAssignment, SlideCatalogEntry, SlidePlacement
+from lecturelog.infrastructure.slides.alignment.grounding import (
+    evidence_matches_entry,
+    evidence_specificity,
+)
 from lecturelog.infrastructure.slides.alignment.markers import (
     inject_marker,
     parse_markdown_blocks,
     strip_slide_markers,
 )
-from lecturelog.infrastructure.slides.alignment.retrieval import normalize_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +41,12 @@ def anchor_assignment(
     # Existing markers are not semantic content and must not shift the stable
     # content-block index expected by inject_marker.
     blocks = parse_markdown_blocks(strip_slide_markers(markdown))
-    query = set(normalize_tokens(" ".join([entry.title or "", entry.visible_text])))
     ranked = [
-        (len(query & set(normalize_tokens(block.text))), index)
+        (evidence_specificity(block.text, entry), index)
         for index, block in enumerate(blocks)
-        if not block.atomic
+        if not block.atomic and evidence_matches_entry(block.text, entry)
     ]
-    if not ranked or max(ranked)[0] == 0:
+    if not ranked:
         return markdown, SlidePlacement(
             assignment.slide_num,
             "section_gallery",

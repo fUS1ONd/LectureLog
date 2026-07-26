@@ -67,12 +67,18 @@ def align_sequence(
             weights,
             forbidden=(index, chosen.global_section_id),
         )
-        margin = best_total - constrained_total
+        path_margin = best_total - constrained_total
+        margin = (
+            min(path_margin, chosen.competition_margin)
+            if chosen.competition_margin is not None
+            else path_margin
+        )
         best_score = _candidate_score(chosen, weights)
         confidence = confidence_from_margin(
             semantic_tier=chosen.semantic_tier,
             margin=margin,
             has_grounded_evidence=bool(chosen.evidence_block_ids and chosen.evidence_quote),
+            has_competing_context=chosen.competition_margin is not None,
             visual_score=chosen.visual_score,
         )
         status = "discussed" if confidence != "unresolved" else "unmentioned"

@@ -98,6 +98,7 @@ class SlideCandidate:
     lexical_score: float
     semantic_tier: Literal["explicit", "strong", "weak", "none"] = "none"
     visual_score: float | None = None
+    competition_margin: float | None = None
 
 
 @dataclass(frozen=True)

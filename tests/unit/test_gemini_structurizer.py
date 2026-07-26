@@ -41,8 +41,10 @@ async def test_v2_uses_evidence_and_does_not_send_slide_to_render(tmp_path, prom
     )
 
     assert result.slide_assignments[0].match_status == "discussed"
-    assert result.slide_placements[0].output_kind == "inline"
-    assert "<!-- slide:1 -->" in result.topics[0].sections[0].content
+    assert result.slide_assignments[0].assignment_confidence == "probable"
+    assert result.slide_placements[0].output_kind == "section_gallery"
+    assert "<!-- slide:1 -->" not in result.topics[0].sections[0].content
+    assert result.topics[0].sections[0].slide_indices == [1]
     assert all(not call["images"] for call in gemini.recorded_calls)
 
 

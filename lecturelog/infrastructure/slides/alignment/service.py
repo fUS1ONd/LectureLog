@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from lecturelog.domain.slides import (
@@ -20,13 +20,17 @@ from lecturelog.infrastructure.slides.alignment.catalog import (
     native_text_fallback,
     parse_catalog_response,
 )
+from lecturelog.infrastructure.slides.alignment.grounding import (
+    evidence_matches_entry,
+    evidence_specificity,
+)
 from lecturelog.infrastructure.slides.alignment.retrieval import generate_candidates
 from lecturelog.infrastructure.slides.alignment.semantic import validate_semantic_response
 from lecturelog.infrastructure.slides.alignment.sequence import AlignmentWeights, align_sequence
 from lecturelog.infrastructure.srt import parse_srt_blocks, parse_srt_time
 
 logger = logging.getLogger(__name__)
-_SERVICE_ROLES = {"title", "agenda", "section_divider", "closing", "blank"}
+_NON_MATCHABLE_ROLES = {"blank"}
 
 
 @dataclass(frozen=True)
@@ -70,7 +74,7 @@ class DocumentAlignmentService:
         candidates: dict[int, tuple[SlideCandidate, ...]] = {}
         for asset in assets:
             entry = entries.get(asset.slide_num)
-            if entry is None or entry.role in _SERVICE_ROLES:
+            if entry is None or entry.role in _NON_MATCHABLE_ROLES:
                 candidates[asset.slide_num] = ()
                 continue
             retrieved = generate_candidates(
@@ -84,6 +88,7 @@ class DocumentAlignmentService:
                 entry,
                 retrieved,
                 blocks,
+                sections,
                 on_usage,
                 catalog_verified=asset.slide_num in verified_catalog_slides,
             )
@@ -99,9 +104,10 @@ class DocumentAlignmentService:
             self._tuning.weights,
         )
         assignments = self._decorate_roles(assignments, entries)
+        assignments = self._downgrade_evidence_collisions(assignments, relations)
         supported = sum(item.match_status == "discussed" for item in assignments)
         content_count = sum(
-            entry.role not in _SERVICE_ROLES for entry in entries.values()
+            entry.role not in _NON_MATCHABLE_ROLES for entry in entries.values()
         )
         required = max(
             self._tuning.deck_min_supported_slides,
@@ -156,7 +162,7 @@ class DocumentAlignmentService:
         return result, verified
 
     async def _verify(
-        self, entry, candidates, blocks, on_usage, *, catalog_verified: bool
+        self, entry, candidates, blocks, sections, on_usage, *, catalog_verified: bool
     ) -> tuple[SlideCandidate, ...]:
         if not candidates:
             return ()
@@ -202,7 +208,7 @@ class DocumentAlignmentService:
             if first is None:
                 response = json.loads(raw)
                 if response.get("semantic_tier") != "strong":
-                    return ()
+                    return self._global_recovery(entry, sections, blocks)
                 second_raw = await self._llm.call(
                     prompt=prompt + "\nНезависимо перепроверь strong verdict.",
                     models=self._models, response_json=True,
@@ -212,43 +218,79 @@ class DocumentAlignmentService:
                     second_raw, entry=entry, candidates=candidates, blocks=blocks,
                     strong_judge_agrees=True,
                 )
-                return (second,) if second and second.semantic_tier == "strong" else ()
-            return (first,)
+                if second and second.semantic_tier == "strong":
+                    return (self._with_competition(second, candidates),)
+                return self._global_recovery(entry, sections, blocks)
+            return (self._with_competition(first, candidates),)
         except Exception as error:
             logger.warning(
                 "semantic verification failed closed for slide %d: %s",
                 entry.slide_num,
                 error,
             )
-            return ()
+            return self._global_recovery(entry, sections, blocks)
 
     @staticmethod
     def _lexical_ground(entry, candidates, blocks) -> SlideCandidate | None:
         # Backwards-compatible, deterministic path for tests/offline operation.
-        from lecturelog.infrastructure.slides.alignment.retrieval import normalize_tokens
-        slide_tokens = set(normalize_tokens(" ".join(
-            [entry.title or "", entry.visible_text, *entry.source_concepts]
-        )))
         by_id = {block.block_id: block for block in blocks}
+        matches = []
         for candidate in candidates:
             if candidate.lexical_score <= 1.0:
                 continue
             for block_id in candidate.evidence_block_ids:
                 block = by_id[block_id]
-                if slide_tokens & set(normalize_tokens(block.text)):
-                    return SlideCandidate(
-                        candidate.slide_num, candidate.global_section_id, (block_id,),
-                        block.text, block.start_s, block.end_s,
-                        candidate.lexical_score, "explicit", candidate.visual_score,
-                    )
+                if evidence_matches_entry(block.text, entry):
+                    matches.append((
+                        evidence_specificity(block.text, entry),
+                        candidate.lexical_score,
+                        -block.start_s,
+                        candidate,
+                        block,
+                    ))
+        if matches:
+            _, _, _, candidate, block = max(matches, key=lambda item: item[:3])
+            grounded = SlideCandidate(
+                candidate.slide_num, candidate.global_section_id, (block.block_id,),
+                block.text, block.start_s, block.end_s,
+                candidate.lexical_score, "explicit", candidate.visual_score,
+            )
+            return DocumentAlignmentService._with_competition(grounded, candidates)
         return None
+
+    @staticmethod
+    def _with_competition(candidate, candidates):
+        alternatives = [
+            item.lexical_score
+            for item in candidates
+            if item.global_section_id != candidate.global_section_id
+        ]
+        margin = (
+            candidate.lexical_score - max(alternatives)
+            if alternatives
+            else None
+        )
+        return replace(candidate, competition_margin=margin)
+
+    def _global_recovery(self, entry, sections, blocks):
+        recovered_pool = generate_candidates(
+            entry,
+            sections,
+            blocks,
+            limit=len(sections),
+            neighbor_radius=0,
+        )
+        recovered = self._lexical_ground(entry, recovered_pool, blocks)
+        if recovered is None:
+            return ()
+        return (replace(recovered, semantic_tier="strong"),)
 
     @staticmethod
     def _decorate_roles(assignments, entries):
         result = []
         for item in assignments:
             entry = entries.get(item.slide_num)
-            if entry and entry.role in _SERVICE_ROLES and item.match_status != "duplicate":
+            if entry and entry.role == "blank" and item.match_status != "duplicate":
                 result.append(SlideAssignment(
                     item.slide_num, "unmentioned", None, (), None, "unresolved",
                     item.score, f"service_role:{entry.role}",
@@ -256,6 +298,39 @@ class DocumentAlignmentService:
             else:
                 result.append(item)
         return tuple(result)
+
+    @staticmethod
+    def _downgrade_evidence_collisions(assignments, relations):
+        progressive = {
+            slide_num
+            for relation in relations
+            if relation.kind == "progressive_build"
+            for slide_num in (relation.slide_num, relation.canonical_slide_num)
+        }
+        by_evidence: dict[int, list[int]] = {}
+        for item in assignments:
+            if item.match_status != "discussed":
+                continue
+            for block_id in item.evidence_block_ids:
+                if item.slide_num not in progressive:
+                    by_evidence.setdefault(block_id, []).append(item.slide_num)
+        conflicted = {
+            slide_num
+            for slide_nums in by_evidence.values()
+            if len(slide_nums) > 2
+            for slide_num in slide_nums
+        }
+        return tuple(
+            replace(
+                item,
+                assignment_confidence="probable",
+                reason_code=f"{item.reason_code}:evidence_collision",
+            )
+            if item.slide_num in conflicted
+            and item.assignment_confidence == "verified"
+            else item
+            for item in assignments
+        )
 
     def _prompt(self, name: str) -> str:
         if self._prompts_dir is None:

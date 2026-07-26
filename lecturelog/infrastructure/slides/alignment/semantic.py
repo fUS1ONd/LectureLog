@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import re
-
 from lecturelog.domain.slides import SlideCandidate, SlideCatalogEntry, TranscriptBlock
+from lecturelog.infrastructure.slides.alignment.grounding import evidence_matches_entry
 from lecturelog.infrastructure.slides.alignment.schemas import SemanticMatchResponse
 
 
@@ -29,9 +28,11 @@ def validate_semantic_response(
     by_id = {block.block_id: block for block in blocks}
     evidence_text = " ".join(by_id[block_id].text for block_id in response.evidence_block_ids)
     quote = (response.evidence_quote or "").strip()
-    if quote and _normalize(quote) not in _normalize(evidence_text):
+    if quote and " ".join(quote.casefold().split()) not in " ".join(
+        evidence_text.casefold().split()
+    ):
         raise ValueError("evidence quote отсутствует в указанных SRT blocks")
-    if response.semantic_tier == "explicit" and not _quote_matches_slide(quote, entry):
+    if response.semantic_tier == "explicit" and not evidence_matches_entry(quote, entry):
         raise ValueError("explicit quote не подтверждает термин/утверждение слайда")
     if response.semantic_tier == "strong" and not strong_judge_agrees:
         return None
@@ -49,23 +50,3 @@ def validate_semantic_response(
         semantic_tier=response.semantic_tier,
         visual_score=candidate.visual_score,
     )
-
-
-def _normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", text.casefold()).strip()
-
-
-def _quote_matches_slide(quote: str, entry: SlideCatalogEntry) -> bool:
-    quote_tokens = set(re.findall(r"[\w+-]{3,}", quote.casefold()))
-    claims = " ".join(
-        [
-            entry.title or "",
-            entry.visible_text,
-            *entry.source_concepts,
-            *entry.transcript_language_terms,
-            *entry.formulas,
-        ]
-    )
-    claim_tokens = set(re.findall(r"[\w+-]{3,}", claims.casefold()))
-    return bool(quote_tokens & claim_tokens)
-
