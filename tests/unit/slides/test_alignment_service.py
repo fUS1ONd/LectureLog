@@ -145,14 +145,21 @@ def test_overlapping_boundary_is_clamped_when_timeline_advances():
 
 def test_global_recovery_finds_distinctive_term_outside_local_pool():
     blocks = parse_srt_blocks(
-        "1\n00:00:00,000 --> 00:00:05,000\nОбщие слова\n\n"
+        "1\n00:00:00,000 --> 00:00:05,000\n"
+        "Обсуждаем software engineering\n\n"
         "2\n00:00:05,000 --> 00:00:10,000\nТеперь разберём SWEBOK\n"
     )
     sections = (
         SectionRef(0, 0, 0, 0, 4.9),
         SectionRef(1, 0, 1, 5, 10),
     )
-    entry = SlideCatalogEntry(1, "content", "SWEBOK", "SWEBOK")
+    entry = SlideCatalogEntry(
+        1,
+        "content",
+        "SWEBOK",
+        "SWEBOK Software Engineering Book of Knowledge",
+        ("software engineering",),
+    )
 
     recovered = DocumentAlignmentService()._global_recovery(entry, sections, blocks)
 

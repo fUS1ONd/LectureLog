@@ -38,16 +38,31 @@ def evidence_matches_entry(evidence: str, entry: SlideCatalogEntry) -> bool:
     return False
 
 
-def evidence_specificity(evidence: str, entry: SlideCatalogEntry) -> tuple[int, float]:
+def evidence_specificity(
+    evidence: str, entry: SlideCatalogEntry
+) -> tuple[int, int, float]:
     """Return a stable ranking key for already-grounded evidence."""
     evidence_tokens = set(_tokens(evidence))
-    best = (0, 0.0)
+    best = (0, 0, 0.0)
     for claim in _claims(entry):
         claim_tokens = set(_tokens(claim))
         if not claim_tokens:
             continue
-        overlap = len(evidence_tokens & claim_tokens)
-        best = max(best, (overlap, overlap / len(claim_tokens)))
+        shared = evidence_tokens & claim_tokens
+        overlap = len(shared)
+        distinctive = (
+            overlap == 1
+            and _is_distinctive_singleton(next(iter(shared)), claim, entry)
+        )
+        exact_phrase = (
+            len(claim_tokens) >= 2
+            and _normalize(claim) in _normalize(evidence)
+        )
+        evidence_class = 2 if distinctive else 1 if exact_phrase else 0
+        best = max(
+            best,
+            (evidence_class, overlap, overlap / len(claim_tokens)),
+        )
     return best
 
 
