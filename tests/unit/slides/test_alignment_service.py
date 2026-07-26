@@ -79,6 +79,8 @@ async def test_llm_catalog_and_semantic_verification_are_used(tmp_path):
     assert len(llm.calls) == 2
     assert llm.calls[0]["images"]
     assert llm.calls[1]["response_json"] is True
+    assert llm.calls[0]["temperature"] == 0
+    assert llm.calls[1]["temperature"] == 0
 
 
 @pytest.mark.asyncio

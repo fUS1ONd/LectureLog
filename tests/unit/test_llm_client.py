@@ -142,6 +142,18 @@ async def test_forces_byok_provider_and_extra_body():
 
 
 @pytest.mark.asyncio
+async def test_temperature_is_forwarded_only_when_requested():
+    fake = FakeAsyncOpenAI([_resp("ok"), _resp("ok")])
+    client = LlmClient(fake, ModelCooldown())
+
+    await client.call("q", models=["m1"], temperature=0)
+    await client.call("q", models=["m1"])
+
+    assert fake.chat.completions.kwargs_history[0]["temperature"] == 0
+    assert "temperature" not in fake.chat.completions.kwargs_history[1]
+
+
+@pytest.mark.asyncio
 async def test_no_reasoning_field_when_effort_none():
     fake = FakeAsyncOpenAI([_resp("ok")])
     client = LlmClient(fake, ModelCooldown())

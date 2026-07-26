@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from lecturelog.domain.slides import SlideCandidate, SlideCatalogEntry, TranscriptBlock
 from lecturelog.infrastructure.slides.alignment.grounding import evidence_matches_entry
 from lecturelog.infrastructure.slides.alignment.schemas import SemanticMatchResponse
@@ -13,7 +15,12 @@ def validate_semantic_response(
     blocks: list[TranscriptBlock],
     strong_judge_agrees: bool = False,
 ) -> SlideCandidate | None:
-    response = SemanticMatchResponse.model_validate_json(raw)
+    payload = json.loads(raw)
+    if isinstance(payload, list):
+        if len(payload) != 1:
+            raise ValueError("semantic response array должен содержать ровно один объект")
+        payload = payload[0]
+    response = SemanticMatchResponse.model_validate(payload)
     if response.slide_num != entry.slide_num:
         raise ValueError("semantic response ссылается на другой slide_num")
     candidate = next(

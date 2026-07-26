@@ -146,6 +146,7 @@ class DocumentAlignmentService:
                         images=[asset.path.read_bytes() for asset in batch],
                         response_json=True,
                         effort=self._effort,
+                        temperature=0,
                         on_usage=on_usage,
                     )
                     parsed = parse_catalog_response(
@@ -199,7 +200,7 @@ class DocumentAlignmentService:
         try:
             raw = await self._llm.call(
                 prompt=prompt, models=self._models, response_json=True,
-                effort=self._effort, on_usage=on_usage,
+                effort=self._effort, temperature=0, on_usage=on_usage,
             )
             first = validate_semantic_response(
                 raw, entry=entry, candidates=candidates, blocks=blocks
@@ -212,7 +213,7 @@ class DocumentAlignmentService:
                 second_raw = await self._llm.call(
                     prompt=prompt + "\nНезависимо перепроверь strong verdict.",
                     models=self._models, response_json=True,
-                    effort=self._effort, on_usage=on_usage,
+                    effort=self._effort, temperature=0, on_usage=on_usage,
                 )
                 second = validate_semantic_response(
                     second_raw, entry=entry, candidates=candidates, blocks=blocks,

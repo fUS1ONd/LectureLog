@@ -106,3 +106,57 @@ def test_semantic_rejects_exact_generic_single_word_claim() -> None:
             candidates=candidates,
             blocks=blocks,
         )
+
+
+def test_semantic_accepts_single_item_array_transport_shape() -> None:
+    blocks = parse_srt_blocks(
+        "1\n00:00:00,000 --> 00:00:05,000\nОбсуждаем бинарное дерево поиска\n"
+    )
+    entry = SlideCatalogEntry(
+        1, "content", "Бинарное дерево", "Бинарное дерево поиска"
+    )
+    candidates = generate_candidates(entry, (SectionRef(0, 0, 0, 0, 5),), blocks)
+
+    result = validate_semantic_response(
+        json.dumps(
+            [
+                {
+                    "slide_num": 1,
+                    "global_section_id": 0,
+                    "evidence_block_ids": [1],
+                    "evidence_quote": "Обсуждаем бинарное дерево поиска",
+                    "semantic_tier": "explicit",
+                }
+            ]
+        ),
+        entry=entry,
+        candidates=candidates,
+        blocks=blocks,
+    )
+
+    assert result is not None
+
+
+def test_semantic_rejects_multi_item_array() -> None:
+    blocks = parse_srt_blocks(
+        "1\n00:00:00,000 --> 00:00:05,000\nОбсуждаем бинарное дерево поиска\n"
+    )
+    entry = SlideCatalogEntry(
+        1, "content", "Бинарное дерево", "Бинарное дерево поиска"
+    )
+    candidates = generate_candidates(entry, (SectionRef(0, 0, 0, 0, 5),), blocks)
+    item = {
+        "slide_num": 1,
+        "global_section_id": 0,
+        "evidence_block_ids": [1],
+        "evidence_quote": "Обсуждаем бинарное дерево поиска",
+        "semantic_tier": "explicit",
+    }
+
+    with pytest.raises(ValueError, match="ровно один"):
+        validate_semantic_response(
+            json.dumps([item, item]),
+            entry=entry,
+            candidates=candidates,
+            blocks=blocks,
+        )

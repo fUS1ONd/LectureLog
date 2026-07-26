@@ -23,7 +23,7 @@ def _asset(number: int, text: str = "Алгоритмы и структуры д
 
 def test_catalog_batches_are_bounded_and_ordered() -> None:
     batches = catalog_batches([_asset(number) for number in range(1, 15)])
-    assert [len(batch) for batch in batches] == [6, 6, 2]
+    assert [len(batch) for batch in batches] == [2, 2, 2, 2, 2, 2, 2]
     assert [item.slide_num for batch in batches for item in batch] == list(range(1, 15))
 
 

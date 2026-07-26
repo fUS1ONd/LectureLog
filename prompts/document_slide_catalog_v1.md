@@ -6,3 +6,13 @@
 страницы укажи role, title, visible_text, source_concepts,
 transcript_language_terms, visual_summary и formulas.
 
+Ограничения на одну страницу:
+
+- `title`: не более 160 символов;
+- `visible_text`: не более 1000 символов, только ключевой видимый текст;
+- `source_concepts`: не более 8 кратких элементов;
+- `transcript_language_terms`: не более 8 кратких элементов;
+- `visual_summary`: не более 400 символов;
+- `formulas`: не более 8 элементов.
+
+Не пересказывай страницу длинной прозой. Верни только JSON без Markdown.

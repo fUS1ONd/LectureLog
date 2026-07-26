@@ -11,7 +11,7 @@ from lecturelog.domain.slides import (
 )
 from lecturelog.infrastructure.slides.alignment.schemas import CatalogBatchResponse
 
-MAX_CATALOG_BATCH = 6
+MAX_CATALOG_BATCH = 2
 
 
 def catalog_batches(

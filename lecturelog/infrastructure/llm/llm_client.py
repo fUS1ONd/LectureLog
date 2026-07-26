@@ -127,6 +127,7 @@ class LlmClient:
         on_usage: UsageCallback | Callable[[dict], Awaitable[None]] | None = None,
         response_json: bool = False,
         effort: str | None = None,
+        temperature: float | None = None,
         retries: int = 5,
     ) -> str:
         messages = _build_messages(prompt, images)
@@ -145,6 +146,8 @@ class LlmClient:
             }
             if response_json:
                 kwargs["response_format"] = {"type": "json_object"}
+            if temperature is not None:
+                kwargs["temperature"] = temperature
             try:
                 resp = await self._client.chat.completions.create(**kwargs)
             except openai.RateLimitError as error:
