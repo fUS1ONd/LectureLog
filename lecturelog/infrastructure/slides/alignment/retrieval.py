@@ -47,33 +47,22 @@ def generate_candidates(
         )
     )
     query_tokens = set(normalize_tokens(" ".join(query_parts)))
-    section_documents = [
-        (section, blocks_for_section(blocks, section))
-        for section in sections
-    ]
+    section_documents = [(section, blocks_for_section(blocks, section)) for section in sections]
     section_counters = [
         Counter(normalize_tokens(" ".join(block.text for block in evidence)))
         for _, evidence in section_documents
     ]
     document_count = max(len(section_counters), 1)
-    average_length = (
-        sum(sum(counter.values()) for counter in section_counters) / document_count
-    )
+    average_length = sum(sum(counter.values()) for counter in section_counters) / document_count
     document_frequency = {
-        token: sum(token in counter for counter in section_counters)
-        for token in query_tokens
+        token: sum(token in counter for counter in section_counters) for token in query_tokens
     }
     idf = {
-        token: math.log(
-            1.0
-            + (document_count - frequency + 0.5) / (frequency + 0.5)
-        )
+        token: math.log(1.0 + (document_count - frequency + 0.5) / (frequency + 0.5))
         for token, frequency in document_frequency.items()
     }
     scored: list[tuple[float, SectionRef, tuple[TranscriptBlock, ...]]] = []
-    for (section, evidence), doc_tokens in zip(
-        section_documents, section_counters, strict=True
-    ):
+    for (section, evidence), doc_tokens in zip(section_documents, section_counters, strict=True):
         text = " ".join(block.text for block in evidence)
         lexical = _bm25_score(
             doc_tokens,
@@ -113,15 +102,9 @@ def generate_candidates(
                 evidence_block_ids=ids,
                 evidence_quote=None,
                 anchor_start_s=(
-                    selected_evidence[0].start_s
-                    if selected_evidence
-                    else section.start_s
+                    selected_evidence[0].start_s if selected_evidence else section.start_s
                 ),
-                anchor_end_s=(
-                    selected_evidence[-1].end_s
-                    if selected_evidence
-                    else section.end_s
-                ),
+                anchor_end_s=(selected_evidence[-1].end_s if selected_evidence else section.end_s),
                 lexical_score=score,
             )
         )
@@ -135,14 +118,9 @@ def _bm25_score(
     average_length: float,
 ) -> float:
     length = sum(document.values())
-    normalization = _BM25_K1 * (
-        1.0 - _BM25_B + _BM25_B * length / max(average_length, 1.0)
-    )
+    normalization = _BM25_K1 * (1.0 - _BM25_B + _BM25_B * length / max(average_length, 1.0))
     return sum(
-        idf[token]
-        * document[token]
-        * (_BM25_K1 + 1.0)
-        / (document[token] + normalization)
+        idf[token] * document[token] * (_BM25_K1 + 1.0) / (document[token] + normalization)
         for token in query_tokens
         if document[token]
     )

@@ -65,9 +65,7 @@ def _rate_limit_error(raw_metadata: str) -> openai.RateLimitError:
     return openai.RateLimitError(message="rate limited", response=response, body=body)
 
 
-def _authentication_error(
-    *, byok: bool, sdk_unwrapped: bool = False
-) -> openai.AuthenticationError:
+def _authentication_error(*, byok: bool, sdk_unwrapped: bool = False) -> openai.AuthenticationError:
     error_body = {
         "message": "authentication failed",
         "metadata": {
@@ -78,9 +76,7 @@ def _authentication_error(
     body = error_body if sdk_unwrapped else {"error": error_body}
     request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
     response = httpx.Response(401, request=request, json=body)
-    return openai.AuthenticationError(
-        message="authentication failed", response=response, body=body
-    )
+    return openai.AuthenticationError(message="authentication failed", response=response, body=body)
 
 
 _RPM_RAW = json.dumps(

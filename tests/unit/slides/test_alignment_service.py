@@ -67,9 +67,7 @@ async def test_llm_catalog_and_semantic_verification_are_used(tmp_path):
             ),
         ]
     )
-    service = DocumentAlignmentService(
-        llm=llm, models=["m"], prompts_dir=prompts, effort="low"
-    )
+    service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
     result = await service.align(
         assets=[SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")],
         section_layout=_layout(),
@@ -91,7 +89,9 @@ async def test_deck_guard_marks_unrelated_deck(tmp_path):
     result = await service.align(
         assets=[
             SlideAsset(
-                1, image, "document",
+                1,
+                image,
+                "document",
                 extracted_text="Совершенно посторонняя квантовая химия",
                 native_text_quality="good",
             )
@@ -111,9 +111,7 @@ async def test_invalid_section_timeline_fails_closed(tmp_path):
     with pytest.raises(ValueError, match="timeline"):
         await service.align(
             assets=[
-                SlideAsset(
-                    1, image, "document", extracted_text="x", native_text_quality="sparse"
-                )
+                SlideAsset(1, image, "document", extracted_text="x", native_text_quality="sparse")
             ],
             section_layout=[
                 [
@@ -126,9 +124,7 @@ async def test_invalid_section_timeline_fails_closed(tmp_path):
 
 
 def test_overlapping_boundary_is_clamped_when_timeline_advances():
-    blocks = parse_srt_blocks(
-        "1\n00:00:00,000 --> 00:00:30,000\ntext\n"
-    )
+    blocks = parse_srt_blocks("1\n00:00:00,000 --> 00:00:30,000\ntext\n")
     refs = DocumentAlignmentService._section_refs(
         [
             [
@@ -171,9 +167,7 @@ def test_global_recovery_finds_distinctive_term_outside_local_pool():
 
 
 def test_global_recovery_rejects_generic_single_word_overlap():
-    blocks = parse_srt_blocks(
-        "1\n00:00:00,000 --> 00:00:05,000\nОбсуждаем требования системы\n"
-    )
+    blocks = parse_srt_blocks("1\n00:00:00,000 --> 00:00:05,000\nОбсуждаем требования системы\n")
     sections = (SectionRef(0, 0, 0, 0, 5),)
     entry = SlideCatalogEntry(
         1,
@@ -243,9 +237,7 @@ async def test_navigation_role_requires_semantic_evidence(tmp_path):
             ),
         ]
     )
-    service = DocumentAlignmentService(
-        llm=llm, models=["m"], prompts_dir=prompts, effort="low"
-    )
+    service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
 
     result = await service.align(
         assets=[SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")],

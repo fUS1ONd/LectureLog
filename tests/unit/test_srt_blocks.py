@@ -13,4 +13,3 @@ def test_parse_srt_blocks_handles_crlf_multiline_and_dot_milliseconds() -> None:
     assert "first second" in extract_srt_fragment(
         "7\n00:00:01.250 --> 00:00:02,750\nfirst\nsecond\n", "0:01", "0:02"
     )
-

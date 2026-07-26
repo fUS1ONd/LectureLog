@@ -55,4 +55,3 @@ class AnchorResponse(BaseModel):
     slide_num: int = Field(ge=1)
     block_index: int = Field(ge=0)
     side: Literal["before", "after"]
-

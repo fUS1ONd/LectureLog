@@ -60,9 +60,7 @@ def test_semantic_rejects_explicit_match_based_on_generic_token_only() -> None:
 
 
 def test_semantic_accepts_single_distinctive_term() -> None:
-    blocks = parse_srt_blocks(
-        "1\n00:00:00,000 --> 00:00:05,000\nТеперь разберём SWEBOK\n"
-    )
+    blocks = parse_srt_blocks("1\n00:00:00,000 --> 00:00:05,000\nТеперь разберём SWEBOK\n")
     entry = SlideCatalogEntry(1, "content", "SWEBOK", "SWEBOK")
     candidates = generate_candidates(entry, (SectionRef(0, 0, 0, 0, 5),), blocks)
 
@@ -85,9 +83,7 @@ def test_semantic_accepts_single_distinctive_term() -> None:
 
 
 def test_semantic_rejects_exact_generic_single_word_claim() -> None:
-    blocks = parse_srt_blocks(
-        "1\n00:00:00,000 --> 00:00:05,000\nТеперь обсудим систему\n"
-    )
+    blocks = parse_srt_blocks("1\n00:00:00,000 --> 00:00:05,000\nТеперь обсудим систему\n")
     entry = SlideCatalogEntry(1, "content", "Система", "Система")
     candidates = generate_candidates(entry, (SectionRef(0, 0, 0, 0, 5),), blocks)
 
@@ -112,9 +108,7 @@ def test_semantic_accepts_single_item_array_transport_shape() -> None:
     blocks = parse_srt_blocks(
         "1\n00:00:00,000 --> 00:00:05,000\nОбсуждаем бинарное дерево поиска\n"
     )
-    entry = SlideCatalogEntry(
-        1, "content", "Бинарное дерево", "Бинарное дерево поиска"
-    )
+    entry = SlideCatalogEntry(1, "content", "Бинарное дерево", "Бинарное дерево поиска")
     candidates = generate_candidates(entry, (SectionRef(0, 0, 0, 0, 5),), blocks)
 
     result = validate_semantic_response(
@@ -141,9 +135,7 @@ def test_semantic_rejects_multi_item_array() -> None:
     blocks = parse_srt_blocks(
         "1\n00:00:00,000 --> 00:00:05,000\nОбсуждаем бинарное дерево поиска\n"
     )
-    entry = SlideCatalogEntry(
-        1, "content", "Бинарное дерево", "Бинарное дерево поиска"
-    )
+    entry = SlideCatalogEntry(1, "content", "Бинарное дерево", "Бинарное дерево поиска")
     candidates = generate_candidates(entry, (SectionRef(0, 0, 0, 0, 5),), blocks)
     item = {
         "slide_num": 1,

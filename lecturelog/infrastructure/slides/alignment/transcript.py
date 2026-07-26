@@ -27,4 +27,3 @@ def blocks_for_section(
         for block in blocks
         if block.end_s >= section.start_s and block.start_s <= section.end_s
     )
-

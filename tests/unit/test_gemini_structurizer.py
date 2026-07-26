@@ -13,8 +13,7 @@ from lecturelog.infrastructure.structurize.gemini_structurizer import (
 async def test_v2_uses_evidence_and_does_not_send_slide_to_render(tmp_path, prompts_dir):
     srt = tmp_path / "t.srt"
     srt.write_text(
-        "1\n00:00:00,000 --> 00:00:10,000\n"
-        "Теперь разберём бинарное дерево поиска и его вершины.\n",
+        "1\n00:00:00,000 --> 00:00:10,000\nТеперь разберём бинарное дерево поиска и его вершины.\n",
         encoding="utf-8",
     )
     slide = tmp_path / "slide.png"
@@ -135,9 +134,7 @@ async def test_v2_diagnostics_include_final_placements(tmp_path, prompts_dir):
 
 
 @pytest.mark.asyncio
-async def test_v2_diagnostics_failure_is_warning_only(
-    tmp_path, prompts_dir, monkeypatch
-):
+async def test_v2_diagnostics_failure_is_warning_only(tmp_path, prompts_dir, monkeypatch):
     srt = tmp_path / "t.srt"
     srt.write_text("1\n00:00:00,000 --> 00:00:10,000\ntext\n", encoding="utf-8")
     slide = tmp_path / "slide.png"

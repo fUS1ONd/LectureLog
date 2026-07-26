@@ -298,9 +298,7 @@ class PipelineService:
                 "on_progress": structurize_progress,
                 "on_usage": structurize_usage,
             }
-            structurize_parameters = inspect.signature(
-                self._structurizer.structurize
-            ).parameters
+            structurize_parameters = inspect.signature(self._structurizer.structurize).parameters
             if "slide_assets" in structurize_parameters:
                 structurize_kwargs["slide_assets"] = slide_items
                 structurize_kwargs["context"] = StructurizeContext(
@@ -309,9 +307,7 @@ class PipelineService:
                 )
             else:  # transitional compatibility for third-party/test adapters
                 structurize_kwargs["slide_images"] = [asset.path for asset in slide_items]
-            raw_structurize_result = await self._structurizer.structurize(
-                **structurize_kwargs
-            )
+            raw_structurize_result = await self._structurizer.structurize(**structurize_kwargs)
             structurize_result = (
                 raw_structurize_result
                 if isinstance(raw_structurize_result, StructurizeResult)
@@ -393,9 +389,7 @@ class PipelineService:
             export_result = await self._exporter.export(**export_kwargs)
             output_root = export_result.output_root
 
-            alignment_diagnostic = (
-                work_dir / "structurize" / "document-slide-alignment.json"
-            )
+            alignment_diagnostic = work_dir / "structurize" / "document-slide-alignment.json"
             if alignment_diagnostic.is_file():
                 try:
                     shutil.copy2(alignment_diagnostic, output_root / alignment_diagnostic.name)

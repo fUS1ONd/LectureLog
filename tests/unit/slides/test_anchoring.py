@@ -20,9 +20,7 @@ def test_marker_injection_failure_falls_back_to_section_gallery(monkeypatch) -> 
 
 
 def test_generic_single_token_does_not_create_inline_anchor() -> None:
-    assignment = SlideAssignment(
-        1, "discussed", 0, (1,), 1.0, "verified", 10.0, "test"
-    )
+    assignment = SlideAssignment(1, "discussed", 0, (1,), 1.0, "verified", 10.0, "test")
     entry = SlideCatalogEntry(
         1,
         "content",

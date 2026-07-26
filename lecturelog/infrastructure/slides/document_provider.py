@@ -56,9 +56,7 @@ async def _convert_pdf_to_png(pdf_path: Path, output_dir: Path) -> list[_Rendere
                     pixmap.save(str(out_path))
                     if not out_path.is_file() or out_path.stat().st_size == 0:
                         raise InvalidSlidesDocument(f"страница {page_idx + 1} не отрендерилась")
-                    pages.append(
-                        _RenderedPage(page_idx + 1, out_path, text, _text_quality(text))
-                    )
+                    pages.append(_RenderedPage(page_idx + 1, out_path, text, _text_quality(text)))
                 return pages
         except InvalidSlidesDocument:
             raise
@@ -115,6 +113,7 @@ async def _convert_pptx_to_png(pptx_path: Path, output_dir: Path) -> list[_Rende
 
 async def render_preview(asset: SlideAsset, output_path: Path, max_side: int = 1280) -> Path:
     """Build a bounded catalog preview without modifying the 200-DPI export asset."""
+
     def _resize() -> None:
         try:
             from PIL import Image

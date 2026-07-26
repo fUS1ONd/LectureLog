@@ -79,8 +79,7 @@ def _is_google_byok_auth_error(error: openai.AuthenticationError) -> bool:
         error_body = body.get("error", body)
         metadata = error_body.get("metadata", {})
         return (
-            metadata.get("is_byok") is True
-            and metadata.get("provider_name") == "Google AI Studio"
+            metadata.get("is_byok") is True and metadata.get("provider_name") == "Google AI Studio"
         )
     except (AttributeError, ValueError, TypeError):
         return False

@@ -488,9 +488,8 @@ class GeminiStructurizer(Structurizer):
                     )
                     continue
                 entry_result = native_text_fallback(assets_by_num[assignment.slide_num])
-                if (
-                    assignment.global_section_id is not None
-                    and assignment.global_section_id < len(flat_sections)
+                if assignment.global_section_id is not None and assignment.global_section_id < len(
+                    flat_sections
                 ):
                     section = flat_sections[assignment.global_section_id]
                     section.content, placement = anchor_assignment(

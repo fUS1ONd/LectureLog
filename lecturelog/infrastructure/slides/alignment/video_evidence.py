@@ -80,4 +80,3 @@ def aggregate_temporal_runs(
                     )
                 )
     return tuple(sorted(result, key=lambda match: (match.timestamp_s, match.slide_num)))
-

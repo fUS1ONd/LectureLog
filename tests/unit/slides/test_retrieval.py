@@ -23,8 +23,7 @@ def test_retrieval_normalizes_long_generic_section_and_limits_evidence() -> None
         for index in range(1, 9)
     )
     blocks = parse_srt_blocks(
-        generic
-        + "\n\n9\n00:00:10,000 --> 00:00:11,000\n"
+        generic + "\n\n9\n00:00:10,000 --> 00:00:11,000\n"
         "спиральная модель анализирует риски на каждом витке\n"
     )
     sections = (
@@ -38,9 +37,7 @@ def test_retrieval_normalizes_long_generic_section_and_limits_evidence() -> None
         "Анализ рисков на каждом витке",
     )
 
-    candidates = generate_candidates(
-        entry, sections, blocks, limit=1, neighbor_radius=0
-    )
+    candidates = generate_candidates(entry, sections, blocks, limit=1, neighbor_radius=0)
 
     assert candidates[0].global_section_id == 1
     assert candidates[0].evidence_block_ids == (9,)

@@ -106,9 +106,7 @@ class DocumentAlignmentService:
         assignments = self._decorate_roles(assignments, entries)
         assignments = self._downgrade_evidence_collisions(assignments, relations)
         supported = sum(item.match_status == "discussed" for item in assignments)
-        content_count = sum(
-            entry.role not in _NON_MATCHABLE_ROLES for entry in entries.values()
-        )
+        content_count = sum(entry.role not in _NON_MATCHABLE_ROLES for entry in entries.values())
         required = max(
             self._tuning.deck_min_supported_slides,
             int(content_count * self._tuning.deck_min_supported_ratio + 0.999),
@@ -118,8 +116,14 @@ class DocumentAlignmentService:
                 item
                 if item.match_status == "duplicate"
                 else SlideAssignment(
-                    item.slide_num, "deck_mismatch", None, (), None, "unresolved",
-                    item.score, "deck_guard_insufficient_grounded_coverage",
+                    item.slide_num,
+                    "deck_mismatch",
+                    None,
+                    (),
+                    None,
+                    "unresolved",
+                    item.score,
+                    "deck_guard_insufficient_grounded_coverage",
                 )
                 for item in assignments
             )
@@ -132,8 +136,10 @@ class DocumentAlignmentService:
         verified: set[int] = set()
         for batch in catalog_batches(assets):
             parsed: list[SlideCatalogEntry] | None = None
-            if self._llm is not None and self._models and all(
-                _is_supported_image(asset.path) for asset in batch
+            if (
+                self._llm is not None
+                and self._models
+                and all(_is_supported_image(asset.path) for asset in batch)
             ):
                 try:
                     prompt = self._prompt("document_slide_catalog_v1.md")
@@ -149,9 +155,7 @@ class DocumentAlignmentService:
                         temperature=0,
                         on_usage=on_usage,
                     )
-                    parsed = parse_catalog_response(
-                        raw, [asset.slide_num for asset in batch]
-                    )
+                    parsed = parse_catalog_response(raw, [asset.slide_num for asset in batch])
                     verified.update(entry.slide_num for entry in parsed)
                 except Exception as error:  # individual native-text fallback is safe
                     logger.warning("LLM slide catalog failed, native fallback: %s", error)
@@ -167,11 +171,7 @@ class DocumentAlignmentService:
     ) -> tuple[SlideCandidate, ...]:
         if not candidates:
             return ()
-        if (
-            self._llm is None
-            or not self._models
-            or not catalog_verified
-        ):
+        if self._llm is None or not self._models or not catalog_verified:
             grounded = self._lexical_ground(entry, candidates, blocks)
             return (grounded,) if grounded else ()
         payload = {
@@ -199,8 +199,12 @@ class DocumentAlignmentService:
         prompt += "\n" + json.dumps(payload, ensure_ascii=False)
         try:
             raw = await self._llm.call(
-                prompt=prompt, models=self._models, response_json=True,
-                effort=self._effort, temperature=0, on_usage=on_usage,
+                prompt=prompt,
+                models=self._models,
+                response_json=True,
+                effort=self._effort,
+                temperature=0,
+                on_usage=on_usage,
             )
             first = validate_semantic_response(
                 raw, entry=entry, candidates=candidates, blocks=blocks
@@ -212,11 +216,17 @@ class DocumentAlignmentService:
                     return self._global_recovery(entry, sections, blocks)
                 second_raw = await self._llm.call(
                     prompt=prompt + "\nНезависимо перепроверь strong verdict.",
-                    models=self._models, response_json=True,
-                    effort=self._effort, temperature=0, on_usage=on_usage,
+                    models=self._models,
+                    response_json=True,
+                    effort=self._effort,
+                    temperature=0,
+                    on_usage=on_usage,
                 )
                 second = validate_semantic_response(
-                    second_raw, entry=entry, candidates=candidates, blocks=blocks,
+                    second_raw,
+                    entry=entry,
+                    candidates=candidates,
+                    blocks=blocks,
                     strong_judge_agrees=True,
                 )
                 if second and second.semantic_tier == "strong":
@@ -242,19 +252,27 @@ class DocumentAlignmentService:
             for block_id in candidate.evidence_block_ids:
                 block = by_id[block_id]
                 if evidence_matches_entry(block.text, entry):
-                    matches.append((
-                        evidence_specificity(block.text, entry),
-                        candidate.lexical_score,
-                        -block.start_s,
-                        candidate,
-                        block,
-                    ))
+                    matches.append(
+                        (
+                            evidence_specificity(block.text, entry),
+                            candidate.lexical_score,
+                            -block.start_s,
+                            candidate,
+                            block,
+                        )
+                    )
         if matches:
             _, _, _, candidate, block = max(matches, key=lambda item: item[:3])
             grounded = SlideCandidate(
-                candidate.slide_num, candidate.global_section_id, (block.block_id,),
-                block.text, block.start_s, block.end_s,
-                candidate.lexical_score, "explicit", candidate.visual_score,
+                candidate.slide_num,
+                candidate.global_section_id,
+                (block.block_id,),
+                block.text,
+                block.start_s,
+                block.end_s,
+                candidate.lexical_score,
+                "explicit",
+                candidate.visual_score,
             )
             return DocumentAlignmentService._with_competition(grounded, candidates)
         return None
@@ -266,11 +284,7 @@ class DocumentAlignmentService:
             for item in candidates
             if item.global_section_id != candidate.global_section_id
         ]
-        margin = (
-            candidate.lexical_score - max(alternatives)
-            if alternatives
-            else None
-        )
+        margin = candidate.lexical_score - max(alternatives) if alternatives else None
         return replace(candidate, competition_margin=margin)
 
     def _global_recovery(self, entry, sections, blocks):
@@ -292,10 +306,18 @@ class DocumentAlignmentService:
         for item in assignments:
             entry = entries.get(item.slide_num)
             if entry and entry.role == "blank" and item.match_status != "duplicate":
-                result.append(SlideAssignment(
-                    item.slide_num, "unmentioned", None, (), None, "unresolved",
-                    item.score, f"service_role:{entry.role}",
-                ))
+                result.append(
+                    SlideAssignment(
+                        item.slide_num,
+                        "unmentioned",
+                        None,
+                        (),
+                        None,
+                        "unresolved",
+                        item.score,
+                        f"service_role:{entry.role}",
+                    )
+                )
             else:
                 result.append(item)
         return tuple(result)
@@ -327,8 +349,7 @@ class DocumentAlignmentService:
                 assignment_confidence="probable",
                 reason_code=f"{item.reason_code}:evidence_collision",
             )
-            if item.slide_num in conflicted
-            and item.assignment_confidence == "verified"
+            if item.slide_num in conflicted and item.assignment_confidence == "verified"
             else item
             for item in assignments
         )
@@ -359,9 +380,7 @@ class DocumentAlignmentService:
                     start = previous_end
                 if transcript_end and end > transcript_end + 5.0:
                     raise ValueError("section timeline exceeds transcript")
-                refs.append(SectionRef(
-                    len(refs), topic_index, local_index, start, end
-                ))
+                refs.append(SectionRef(len(refs), topic_index, local_index, start, end))
                 previous_end = end
         if not refs:
             raise ValueError("section timeline is empty")

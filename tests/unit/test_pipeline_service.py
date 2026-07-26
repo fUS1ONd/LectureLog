@@ -68,9 +68,7 @@ class DiagnosticStructurizer(FakeStructurizer):
         (Path(output_dir) / "document-slide-alignment.json").write_text(
             '{"schema_version": 1}', encoding="utf-8"
         )
-        return await super().structurize(
-            srt_path, slide_images, output_dir, on_progress, on_usage
-        )
+        return await super().structurize(srt_path, slide_images, output_dir, on_progress, on_usage)
 
 
 class FakeCutter:
@@ -191,9 +189,7 @@ async def test_alignment_diagnostic_is_included_in_exported_result(tmp_path):
     )
 
     assert (
-        storage.objects[
-            "results/diagnostic/output/document-slide-alignment.json"
-        ]
+        storage.objects["results/diagnostic/output/document-slide-alignment.json"]
         == b'{"schema_version": 1}'
     )
 

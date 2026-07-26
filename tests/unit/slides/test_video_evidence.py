@@ -41,4 +41,3 @@ def test_temporal_runs_reject_single_false_positive() -> None:
     ]
     runs = aggregate_temporal_runs(matches)
     assert [match.slide_num for match in runs] == [1]
-

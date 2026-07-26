@@ -101,8 +101,4 @@ def detect_progressive_builds(
 
 
 def _catalog_tokens(text: str) -> set[str]:
-    return {
-        token.casefold()
-        for token in text.replace("\n", " ").split()
-        if len(token) >= 3
-    }
+    return {token.casefold() for token in text.replace("\n", " ").split() if len(token) >= 3}

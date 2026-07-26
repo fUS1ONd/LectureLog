@@ -11,4 +11,3 @@ def test_evaluator_detects_perfect_and_corrupted_prediction() -> None:
     assert evaluate(gold, prediction)["precision_discussed"] == 1.0
     prediction["slides"][1]["status"] = "discussed"
     assert evaluate(gold, prediction)["false_positive"] == 1
-

@@ -46,7 +46,13 @@ def align_sequence(
         if slide_num in duplicate_of:
             assignments.append(
                 SlideAssignment(
-                    slide_num, "duplicate", None, (), None, "verified", 0.0,
+                    slide_num,
+                    "duplicate",
+                    None,
+                    (),
+                    None,
+                    "verified",
+                    0.0,
                     f"duplicate_of:{duplicate_of[slide_num]}",
                 )
             )
@@ -54,7 +60,13 @@ def align_sequence(
         if chosen is None:
             assignments.append(
                 SlideAssignment(
-                    slide_num, "unmentioned", None, (), None, "unresolved", 0.0,
+                    slide_num,
+                    "unmentioned",
+                    None,
+                    (),
+                    None,
+                    "unresolved",
+                    0.0,
                     "no_supported_evidence",
                 )
             )
@@ -112,14 +124,11 @@ def _solve(
     weights: AlignmentWeights,
     forbidden: tuple[int, int] | None = None,
 ) -> tuple[float, list[SlideCandidate | None]]:
-    states: dict[int | None, tuple[float, list[SlideCandidate | None]]] = {
-        None: (0.0, [])
-    }
+    states: dict[int | None, tuple[float, list[SlideCandidate | None]]] = {None: (0.0, [])}
     for slide_index, slide_num in enumerate(slide_nums):
         if slide_num in duplicate_of:
             states = {
-                previous: (score, path + [None])
-                for previous, (score, path) in states.items()
+                previous: (score, path + [None]) for previous, (score, path) in states.items()
             }
             continue
         options: tuple[SlideCandidate | None, ...] = (
@@ -141,10 +150,7 @@ def _solve(
                         score -= weights.backtrack_penalty * abs(delta)
                     elif delta > 1:
                         score -= weights.jump_penalty * (delta - 1)
-                    if (
-                        slide_num in progressive_of
-                        and option.global_section_id == previous_section
-                    ):
+                    if slide_num in progressive_of and option.global_section_id == previous_section:
                         score += weights.progressive_same_section_bonus
                 existing = next_states.get(section)
                 if existing is None or score > existing[0]:
