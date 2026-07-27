@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 
 from lecturelog.domain.enums import ErrorCode
-from lecturelog.domain.exceptions import MediaIngestError, MediaIngestReason
+from lecturelog.domain.exceptions import InvalidSlidesDocument, MediaIngestError, MediaIngestReason
 
 # Подстроки-сигналы лимита. LlmClient (infrastructure/llm/llm_client.py) при
 # исчерпании ретраев оборачивает исходную ошибку провайдера в RuntimeError с
@@ -38,7 +38,7 @@ def classify_error(exc: BaseException) -> ErrorCode:
             return ErrorCode.BAD_INPUT
         return ErrorCode.INTERNAL
     # 2) Типовые сигналы битого/нераспознанного входа.
-    if isinstance(exc, (FileNotFoundError, ValueError)):
+    if isinstance(exc, (FileNotFoundError, ValueError, InvalidSlidesDocument)):
         return ErrorCode.BAD_INPUT
     # 3) Текстовый сигнал лимита (LlmClient оборачивает last_error в RuntimeError).
     message = str(exc).upper()

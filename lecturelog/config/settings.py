@@ -74,9 +74,12 @@ class LlmConfig(BaseSettings):
         alias="LLM_MODELS_SUBSPLIT",
     )
     models_render: str = Field(
-        "google/gemini-3.5-flash-lite,google/gemini-3.6-flash,google/gemini-3.5-flash",
+        "google/gemini-3.5-flash-lite,google/gemini-3.5-flash,google/gemini-3.6-flash",
         alias="LLM_MODELS_RENDER",
     )
+    # Потолок ответа (включая reasoning-токены). Обрезанный JSON рвал каталог
+    # слайдов молча, поэтому по умолчанию берём предел самих моделей Gemini.
+    max_tokens: int = Field(65536, alias="LLM_MAX_TOKENS")
     concurrency_subsplit: int = Field(2, alias="LLM_CONCURRENCY_SUBSPLIT")
     concurrency_render: int = Field(5, alias="LLM_CONCURRENCY_RENDER")
     # reasoning effort по стадиям: контентные стадии — medium; на low модель
@@ -85,6 +88,10 @@ class LlmConfig(BaseSettings):
     effort_split: str = Field("medium", alias="LLM_EFFORT_SPLIT")
     effort_subsplit: str = Field("medium", alias="LLM_EFFORT_SUBSPLIT")
     effort_render: str = Field("medium", alias="LLM_EFFORT_RENDER")
+    # Сопоставление слайдов идёт строго структурированными ответами: с ростом
+    # reasoning модель хуже держит схему (пропускает обязательные поля), поэтому
+    # у матчера свой effort, независимый от контентных стадий.
+    effort_slide_match: str = Field("low", alias="LLM_EFFORT_SLIDE_MATCH")
 
     @property
     def split_models(self) -> list[str]:
@@ -126,6 +133,18 @@ class FramesConfig(BaseSettings):
     @property
     def classify_models(self) -> list[str]:
         return _split_csv(self.classify_models_raw)
+
+
+class DocumentSlidesConfig(BaseSettings):
+    model_config = _BASE
+    alignment_mode: Literal["legacy", "shadow", "v2"] = Field(
+        "legacy", alias="DOCUMENT_SLIDE_ALIGNMENT_MODE"
+    )
+    candidate_limit: int = Field(5, ge=1, le=12, alias="DOCUMENT_SLIDE_CANDIDATE_LIMIT")
+    neighbor_radius: int = Field(1, ge=0, le=3, alias="DOCUMENT_SLIDE_NEIGHBOR_RADIUS")
+    deck_min_supported_ratio: float = Field(
+        0.08, ge=0.0, le=1.0, alias="DOCUMENT_SLIDE_DECK_MIN_SUPPORTED_RATIO"
+    )
 
 
 class DatabaseConfig(BaseSettings):
@@ -197,6 +216,7 @@ class AppConfig(BaseSettings):
             self.media,
             self.webhook,
             self.frames,
+            self.document_slides,
         )
 
     @computed_field  # type: ignore[prop-decorator]
@@ -238,6 +258,11 @@ class AppConfig(BaseSettings):
     @cached_property
     def frames(self) -> FramesConfig:
         return FramesConfig()
+
+    @computed_field  # type: ignore[prop-decorator]
+    @cached_property
+    def document_slides(self) -> DocumentSlidesConfig:
+        return DocumentSlidesConfig()
 
 
 @lru_cache

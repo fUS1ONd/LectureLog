@@ -9,6 +9,12 @@ from pathlib import Path
 from lecturelog.domain.enums import TaskStatus
 from lecturelog.domain.media_source import MediaSource
 from lecturelog.domain.models import Section, Task, Topic
+from lecturelog.domain.slides import (
+    SlideAsset,
+    SlidePlacement,
+    StructurizeContext,
+    StructurizeResult,
+)
 
 ProgressCallback = Callable[[int], Awaitable[None] | None]
 # Нейтральное зерно расхода ресурсов (audio_seconds / tokens). Стадию навешивает оркестратор.
@@ -57,11 +63,12 @@ class Structurizer(ABC):
     async def structurize(
         self,
         srt_path: Path,
-        slide_images: list[Path],
+        slide_assets: list[SlideAsset],
+        context: StructurizeContext,
         output_dir: Path,
         on_progress: ProgressCallback | None = None,
         on_usage: UsageCallback | None = None,
-    ) -> list[Topic]:
+    ) -> StructurizeResult:
         """SRT + слайды -> структура тем/подтем с привязкой слайдов."""
 
 
@@ -90,7 +97,7 @@ class ExportResult:
 
     output_root: Path
     media_targets: list[Path]
-    slide_targets: list[Path]
+    slide_targets: dict[int, Path]
 
 
 class Exporter(ABC):
@@ -99,7 +106,8 @@ class Exporter(ABC):
         self,
         topics: list[Topic],
         media_fragments: list[Path],
-        slide_images: list[SlideImage],
+        slide_assets: list[SlideAsset],
+        slide_placements: tuple[SlidePlacement, ...],
         output_dir: Path,
         media_kind: str,
     ) -> ExportResult:

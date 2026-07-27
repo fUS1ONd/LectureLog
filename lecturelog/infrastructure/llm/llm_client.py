@@ -26,11 +26,12 @@ logger = logging.getLogger(__name__)
 
 UsageCallback = Callable[[dict], Any]
 
-_DEFAULT_MAX_TOKENS = 4096
+_DEFAULT_MAX_TOKENS = 65536
 _BYOK_PROVIDER = {"only": ["google-ai-studio"], "allow_fallbacks": False}
 # Бэк-офф между ретраями сетевых ошибок (ConnectTimeout и т.п.): разовый флап
 # сети не должен ронять всю задачу — повтор почти всегда проходит.
 _NETWORK_BACKOFF_S = 2.0
+_BYOK_AUTH_COOLDOWN_S = 300.0
 
 
 async def _emit_usage(on_usage: UsageCallback | None, payload: dict) -> None:
@@ -65,6 +66,25 @@ def _extract_rate_limit_raw(error: openai.RateLimitError) -> str:
         return ""
 
 
+def _is_google_byok_auth_error(error: openai.AuthenticationError) -> bool:
+    """True only for a provider-side Google BYOK credential failure.
+
+    An invalid OpenRouter API key must still propagate immediately.  OpenRouter
+    identifies a failed bound Google credential in error.metadata.
+    """
+    body: Any = getattr(error, "body", None)
+    try:
+        if isinstance(body, str):
+            body = json.loads(body)
+        error_body = body.get("error", body)
+        metadata = error_body.get("metadata", {})
+        return (
+            metadata.get("is_byok") is True and metadata.get("provider_name") == "Google AI Studio"
+        )
+    except (AttributeError, ValueError, TypeError):
+        return False
+
+
 def _detect_image_mime(image: bytes) -> str:
     """Определяет MIME по магическим байтам. По умолчанию — png (обратная совместимость)."""
     if image.startswith(b"\xff\xd8"):
@@ -93,9 +113,16 @@ def _build_messages(prompt: str, images: list[bytes] | None) -> list[dict]:
 class LlmClient:
     """Тонкая обёртка над AsyncOpenAI (OpenRouter) с cooldown-ретраями на 429."""
 
-    def __init__(self, async_openai_client: Any, cooldown: ModelCooldown) -> None:
+    def __init__(
+        self,
+        async_openai_client: Any,
+        cooldown: ModelCooldown,
+        *,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
+    ) -> None:
         self._client = async_openai_client
         self._cooldown = cooldown
+        self._max_tokens = max_tokens
 
     async def call(
         self,
@@ -105,7 +132,11 @@ class LlmClient:
         *,
         on_usage: UsageCallback | Callable[[dict], Awaitable[None]] | None = None,
         response_json: bool = False,
+        response_schema: dict | None = None,
+        response_schema_name: str = "response",
         effort: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         retries: int = 5,
     ) -> str:
         messages = _build_messages(prompt, images)
@@ -119,11 +150,24 @@ class LlmClient:
             kwargs: dict[str, Any] = {
                 "model": model,
                 "messages": messages,
-                "max_tokens": _DEFAULT_MAX_TOKENS,
+                "max_tokens": max_tokens or self._max_tokens,
                 "extra_body": extra_body,
             }
-            if response_json:
+            if response_schema is not None:
+                # strict-режим: провайдер обязан вернуть все поля схемы, тогда как
+                # json_object гарантирует лишь синтаксически валидный JSON.
+                kwargs["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": response_schema_name,
+                        "strict": True,
+                        "schema": response_schema,
+                    },
+                }
+            elif response_json:
                 kwargs["response_format"] = {"type": "json_object"}
+            if temperature is not None:
+                kwargs["temperature"] = temperature
             try:
                 resp = await self._client.chat.completions.create(**kwargs)
             except openai.RateLimitError as error:
@@ -133,6 +177,16 @@ class LlmClient:
                     raw, seconds_to_midnight=self._cooldown.seconds_to_midnight()
                 )
                 await self._cooldown.mark_rate_limited(model, ttl)
+                continue
+            except openai.AuthenticationError as error:
+                if not _is_google_byok_auth_error(error):
+                    raise
+                last_error = error
+                logger.warning(
+                    "Google BYOK credential rejected for %s; trying next model",
+                    model,
+                )
+                await self._cooldown.mark_rate_limited(model, _BYOK_AUTH_COOLDOWN_S)
                 continue
             except (openai.APITimeoutError, openai.APIConnectionError) as error:
                 # Сетевой флап (не 429): модель не виновата, cooldown не трогаем —

@@ -47,8 +47,8 @@ async def test_export_lays_out_output_dir_and_returns_targets(tmp_path):
     assert result.media_targets[0].exists()
     assert result.media_targets[0].parent.name == "audio"
     assert len(result.slide_targets) == 1
-    assert result.slide_targets[0].exists()
-    assert result.slide_targets[0].name == "slide-01.png"
+    assert result.slide_targets[1].exists()
+    assert result.slide_targets[1].name == "slide-01.png"
     # result.zip больше НЕ создаётся.
     assert not (output_dir / "result.zip").exists()
 

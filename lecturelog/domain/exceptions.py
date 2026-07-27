@@ -31,6 +31,14 @@ class InvalidFormat(DomainError):
         self.allowed = allowed
 
 
+class InvalidSlidesDocument(DomainError):
+    """PDF/PPTX cannot be rendered atomically into a complete ordered deck."""
+
+    def __init__(self, detail: str):
+        super().__init__(f"Не удалось обработать документ со слайдами: {detail}")
+        self.detail = detail
+
+
 class InvalidSource(DomainError):
     def __init__(self, message: str = "Передайте ровно один источник: audio, video или video_url"):
         super().__init__(message)
