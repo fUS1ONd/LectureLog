@@ -77,6 +77,7 @@ async def lifespan(app: FastAPI):
         effort_split=cfg.llm.effort_split,
         effort_subsplit=cfg.llm.effort_subsplit,
         effort_render=cfg.llm.effort_render,
+        effort_slide_match=cfg.llm.effort_slide_match,
         document_alignment_mode=cfg.document_slides.alignment_mode,
         document_alignment_tuning=AlignmentTuning(
             candidate_limit=cfg.document_slides.candidate_limit,

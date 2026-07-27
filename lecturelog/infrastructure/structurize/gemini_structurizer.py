@@ -68,6 +68,7 @@ class GeminiStructurizer(Structurizer):
         effort_split: str,
         effort_subsplit: str,
         effort_render: str,
+        effort_slide_match: str = "low",
         document_alignment_mode: str = "legacy",
         document_alignment_tuning: AlignmentTuning = AlignmentTuning(),
     ) -> None:
@@ -81,11 +82,12 @@ class GeminiStructurizer(Structurizer):
         self._effort_split = effort_split
         self._effort_subsplit = effort_subsplit
         self._effort_render = effort_render
+        self._effort_slide_match = effort_slide_match
         self._document_alignment_mode = document_alignment_mode
         self._document_alignment = DocumentAlignmentService(
             llm=gemini_client,
             models=subsplit_models,
-            effort=effort_subsplit,
+            effort=effort_slide_match,
             prompts_dir=self._prompts_dir,
             tuning=document_alignment_tuning,
         )

@@ -391,3 +391,22 @@ async def test_structurize_with_slides_uses_per_stage_effort_and_models(tmp_path
     assert len(render_calls) == 1
     assert render_calls[0]["effort"] == "high"
     assert render_calls[0]["images"]
+
+
+def test_slide_matcher_effort_is_independent_from_subsplit(tmp_path):
+    """Поднятие effort контентных стадий не должно менять effort матчера слайдов."""
+    structurizer = GeminiStructurizer(
+        gemini_client=object(),
+        split_models=["m"],
+        subsplit_models=["m"],
+        render_models=["m"],
+        concurrency_subsplit=1,
+        concurrency_render=1,
+        prompts_dir=tmp_path,
+        effort_split="medium",
+        effort_subsplit="medium",
+        effort_render="medium",
+        effort_slide_match="low",
+    )
+
+    assert structurizer._document_alignment._effort == "low"

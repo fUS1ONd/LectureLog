@@ -38,3 +38,12 @@ def test_llm_config_max_tokens_is_configurable(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     monkeypatch.setenv("LLM_MAX_TOKENS", "8192")
     assert LlmConfig().max_tokens == 8192
+
+
+def test_slide_match_effort_defaults_to_low(monkeypatch):
+    """Структурированные вызовы матчера: reasoning мешает соблюдать схему, держим low."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("LLM_EFFORT_SUBSPLIT", "medium")
+    cfg = LlmConfig()
+    assert cfg.effort_slide_match == "low"
+    assert cfg.effort_subsplit == "medium"

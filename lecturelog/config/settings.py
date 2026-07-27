@@ -88,6 +88,10 @@ class LlmConfig(BaseSettings):
     effort_split: str = Field("medium", alias="LLM_EFFORT_SPLIT")
     effort_subsplit: str = Field("medium", alias="LLM_EFFORT_SUBSPLIT")
     effort_render: str = Field("medium", alias="LLM_EFFORT_RENDER")
+    # Сопоставление слайдов идёт строго структурированными ответами: с ростом
+    # reasoning модель хуже держит схему (пропускает обязательные поля), поэтому
+    # у матчера свой effort, независимый от контентных стадий.
+    effort_slide_match: str = Field("low", alias="LLM_EFFORT_SLIDE_MATCH")
 
     @property
     def split_models(self) -> list[str]:
