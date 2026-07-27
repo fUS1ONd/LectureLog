@@ -31,6 +31,7 @@ _BYOK_PROVIDER = {"only": ["google-ai-studio"], "allow_fallbacks": False}
 # Бэк-офф между ретраями сетевых ошибок (ConnectTimeout и т.п.): разовый флап
 # сети не должен ронять всю задачу — повтор почти всегда проходит.
 _NETWORK_BACKOFF_S = 2.0
+_BYOK_AUTH_COOLDOWN_S = 300.0
 
 
 async def _emit_usage(on_usage: UsageCallback | None, payload: dict) -> None:
@@ -63,6 +64,25 @@ def _extract_rate_limit_raw(error: openai.RateLimitError) -> str:
         return raw if isinstance(raw, str) else ""
     except Exception:
         return ""
+
+
+def _is_google_byok_auth_error(error: openai.AuthenticationError) -> bool:
+    """True только для отказа привязанного Google BYOK-ключа.
+
+    Невалидный ключ самого OpenRouter обязан пробрасываться сразу: это ошибка
+    конфигурации, а не отказ конкретного кандидата.
+    """
+    body: Any = getattr(error, "body", None)
+    try:
+        if isinstance(body, str):
+            body = json.loads(body)
+        error_body = body.get("error", body)
+        metadata = error_body.get("metadata", {})
+        return (
+            metadata.get("is_byok") is True and metadata.get("provider_name") == "Google AI Studio"
+        )
+    except (AttributeError, ValueError, TypeError):
+        return False
 
 
 def _detect_image_mime(image: bytes) -> str:
@@ -133,6 +153,18 @@ class LlmClient:
                     raw, seconds_to_midnight=self._cooldown.seconds_to_midnight()
                 )
                 await self._cooldown.mark_rate_limited(model, ttl)
+                continue
+            except openai.AuthenticationError as error:
+                # Мёртвый BYOK-ключ (удалённый service account) — отказ конкретной
+                # модели, а не всего ключа: пробуем следующую вместо падения задачи.
+                if not _is_google_byok_auth_error(error):
+                    raise
+                last_error = error
+                logger.warning(
+                    "Google BYOK credential rejected for %s; trying next model",
+                    model,
+                )
+                await self._cooldown.mark_rate_limited(model, _BYOK_AUTH_COOLDOWN_S)
                 continue
             except (openai.APITimeoutError, openai.APIConnectionError) as error:
                 # Сетевой флап (не 429): модель не виновата, cooldown не трогаем —
