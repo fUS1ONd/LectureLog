@@ -43,16 +43,44 @@ def parse_catalog_response(raw: str, expected_slide_nums: Iterable[int]) -> list
     ]
 
 
-def native_text_fallback(asset: SlideAsset) -> SlideCatalogResult:
+def detect_boilerplate_lines(
+    assets: list[SlideAsset], *, min_share: float = 0.6, min_pages: int = 3
+) -> frozenset[str]:
+    """Строки, повторяющиеся на большинстве страниц колоды (колонтитулы).
+
+    Такая строка описывает не содержание конкретной страницы, а всю колоду,
+    поэтому в качестве доказательства она бесполезна: совпадает с любой репликой,
+    где лектор произносит название курса.
+    """
+    if len(assets) < min_pages:
+        return frozenset()
+    pages_with_line: dict[str, int] = {}
+    for asset in assets:
+        for line in {line.strip() for line in (asset.extracted_text or "").splitlines()}:
+            if line:
+                pages_with_line[line] = pages_with_line.get(line, 0) + 1
+    threshold = max(min_share * len(assets), 2)
+    return frozenset(line for line, pages in pages_with_line.items() if pages >= threshold)
+
+
+def native_text_fallback(
+    asset: SlideAsset, *, boilerplate: frozenset[str] = frozenset()
+) -> SlideCatalogResult:
     text = (asset.extracted_text or "").strip()
     if not text:
         return SlideCatalogResult(asset.slide_num, "unresolved", None)
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and line.strip() not in boilerplate
+    ]
+    if not lines:
+        return SlideCatalogResult(asset.slide_num, "unresolved", None)
     entry = SlideCatalogEntry(
         slide_num=asset.slide_num,
         role="content",
         title=lines[0][:300] if lines else None,
-        visible_text=text[:6000],
+        visible_text="\n".join(lines)[:6000],
         source_concepts=tuple(lines[:12]),
     )
     return SlideCatalogResult(asset.slide_num, "native_text_fallback", entry)

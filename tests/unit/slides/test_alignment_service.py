@@ -8,7 +8,10 @@ from lecturelog.domain.slides import (
     SlideAssignment,
     SlideCatalogEntry,
 )
-from lecturelog.infrastructure.slides.alignment.service import DocumentAlignmentService
+from lecturelog.infrastructure.slides.alignment.service import (
+    CATALOG_MAX_TOKENS,
+    DocumentAlignmentService,
+)
 from lecturelog.infrastructure.srt import parse_srt_blocks
 
 
@@ -283,3 +286,131 @@ async def test_blank_role_remains_unmentioned(tmp_path):
 
     assert result[0].match_status == "unmentioned"
     assert result[0].reason_code == "service_role:blank"
+
+
+@pytest.mark.asyncio
+async def test_native_catalog_filters_deck_wide_header(tmp_path):
+    """Без LLM каталог строится нативно — колонтитул колоды не должен попасть в claim слайда."""
+    header = "Разработка программного обеспечения"
+    assets = []
+    for number, body in enumerate(["Лекция 1", "Организационное", "Жизненный цикл"], start=1):
+        path = tmp_path / f"{number}.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+        assets.append(
+            SlideAsset(
+                number,
+                path,
+                "document",
+                extracted_text=f"{header}\n{body}",
+                native_text_quality="good",
+            )
+        )
+    service = DocumentAlignmentService()
+
+    entries, _verified = await service._catalog(assets, None)
+
+    assert [entry.title for entry in entries.values()] == [
+        "Лекция 1",
+        "Организационное",
+        "Жизненный цикл",
+    ]
+    assert all(header not in entry.visible_text for entry in entries.values())
+
+
+@pytest.mark.asyncio
+async def test_catalog_call_raises_output_ceiling(tmp_path):
+    """Каталог обрезался по дефолтному потолку в 4096 токенов — вызову нужен свой лимит."""
+    image = tmp_path / "slide.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    (prompts / "document_slide_catalog_v1.md").write_text("catalog")
+    llm = ScriptedLlm(
+        [
+            json.dumps(
+                {
+                    "slides": [
+                        {
+                            "slide_num": 1,
+                            "role": "content",
+                            "title": "Бинарное дерево",
+                            "visible_text": "Бинарное дерево поиска",
+                        }
+                    ]
+                }
+            )
+        ]
+    )
+    service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
+
+    await service._catalog(
+        [SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")], None
+    )
+
+    assert llm.calls[0]["max_tokens"] == CATALOG_MAX_TOKENS
+    assert CATALOG_MAX_TOKENS > 4096
+
+
+@pytest.mark.asyncio
+async def test_catalog_repairs_invalid_schema_once(tmp_path):
+    """Сорванная схема не должна молча терять весь batch — сначала одна попытка починки."""
+    image = tmp_path / "slide.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    (prompts / "document_slide_catalog_v1.md").write_text("catalog")
+    broken = json.dumps({"slides": [{"role": "content", "title": "без slide_num"}]})
+    valid = json.dumps(
+        {
+            "slides": [
+                {
+                    "slide_num": 1,
+                    "role": "content",
+                    "title": "Бинарное дерево",
+                    "visible_text": "Бинарное дерево поиска",
+                }
+            ]
+        }
+    )
+    llm = ScriptedLlm([broken, valid])
+    service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
+
+    entries, verified = await service._catalog(
+        [
+            SlideAsset(
+                1, image, "document", extracted_text="запасной текст", native_text_quality="good"
+            )
+        ],
+        None,
+    )
+
+    assert len(llm.calls) == 2
+    assert "slide_num" in llm.calls[1]["prompt"]
+    assert entries[1].title == "Бинарное дерево"
+    assert verified == {1}
+
+
+@pytest.mark.asyncio
+async def test_catalog_falls_back_after_single_failed_repair(tmp_path):
+    """Починка одна: если и она сорвалась, уходим в native text, а не крутим запросы."""
+    image = tmp_path / "slide.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    (prompts / "document_slide_catalog_v1.md").write_text("catalog")
+    broken = json.dumps({"slides": [{"role": "content", "title": "без slide_num"}]})
+    llm = ScriptedLlm([broken, broken])
+    service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
+
+    entries, verified = await service._catalog(
+        [
+            SlideAsset(
+                1, image, "document", extracted_text="запасной текст", native_text_quality="good"
+            )
+        ],
+        None,
+    )
+
+    assert len(llm.calls) == 2
+    assert entries[1].title == "запасной текст"
+    assert verified == set()

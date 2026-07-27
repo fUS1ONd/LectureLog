@@ -127,6 +127,7 @@ class LlmClient:
         response_json: bool = False,
         effort: str | None = None,
         temperature: float | None = None,
+        max_tokens: int | None = None,
         retries: int = 5,
     ) -> str:
         messages = _build_messages(prompt, images)
@@ -140,7 +141,7 @@ class LlmClient:
             kwargs: dict[str, Any] = {
                 "model": model,
                 "messages": messages,
-                "max_tokens": _DEFAULT_MAX_TOKENS,
+                "max_tokens": max_tokens or _DEFAULT_MAX_TOKENS,
                 "extra_body": extra_body,
             }
             if response_json:

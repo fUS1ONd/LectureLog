@@ -15,6 +15,7 @@ from lecturelog.domain.slides import (
 from lecturelog.infrastructure.llm.llm_client import LlmClient
 from lecturelog.infrastructure.slides.alignment.catalog import (
     catalog_batches,
+    detect_boilerplate_lines,
     detect_exact_duplicates,
     detect_progressive_builds,
     native_text_fallback,
@@ -31,6 +32,10 @@ from lecturelog.infrastructure.srt import parse_srt_blocks, parse_srt_time
 
 logger = logging.getLogger(__name__)
 _NON_MATCHABLE_ROLES = {"blank"}
+# Многословные модели упирались в общий потолок 4096 и отдавали обрезанный JSON,
+# из-за чего весь batch молча деградировал в native text. Берём предел самих моделей
+# Gemini (65536): платим за фактические токены ответа, а не за лимит.
+CATALOG_MAX_TOKENS = 65536
 
 
 @dataclass(frozen=True)
@@ -134,6 +139,8 @@ class DocumentAlignmentService:
     ) -> tuple[dict[int, SlideCatalogEntry], set[int]]:
         result: dict[int, SlideCatalogEntry] = {}
         verified: set[int] = set()
+        # Колонтитулы колоды одинаковы на всех страницах и не различают слайды.
+        boilerplate = detect_boilerplate_lines(assets)
         for batch in catalog_batches(assets):
             parsed: list[SlideCatalogEntry] | None = None
             if (
@@ -141,26 +148,39 @@ class DocumentAlignmentService:
                 and self._models
                 and all(_is_supported_image(asset.path) for asset in batch)
             ):
-                try:
-                    prompt = self._prompt("document_slide_catalog_v1.md")
-                    prompt += "\nslide_num в порядке изображений: " + json.dumps(
-                        [asset.slide_num for asset in batch]
-                    )
-                    raw = await self._llm.call(
-                        prompt=prompt,
-                        models=self._models,
-                        images=[asset.path.read_bytes() for asset in batch],
-                        response_json=True,
-                        effort=self._effort,
-                        temperature=0,
-                        on_usage=on_usage,
-                    )
-                    parsed = parse_catalog_response(raw, [asset.slide_num for asset in batch])
-                    verified.update(entry.slide_num for entry in parsed)
-                except Exception as error:  # individual native-text fallback is safe
-                    logger.warning("LLM slide catalog failed, native fallback: %s", error)
+                expected = [asset.slide_num for asset in batch]
+                prompt = self._prompt("document_slide_catalog_v1.md")
+                prompt += "\nslide_num в порядке изображений: " + json.dumps(expected)
+                images = [asset.path.read_bytes() for asset in batch]
+                # Один повтор с текстом ошибки: срыв схемы иначе молча терял весь batch.
+                for attempt in range(2):
+                    try:
+                        raw = await self._llm.call(
+                            prompt=prompt,
+                            models=self._models,
+                            images=images,
+                            response_json=True,
+                            effort=self._effort,
+                            temperature=0,
+                            max_tokens=CATALOG_MAX_TOKENS,
+                            on_usage=on_usage,
+                        )
+                        parsed = parse_catalog_response(raw, expected)
+                        verified.update(entry.slide_num for entry in parsed)
+                        break
+                    except Exception as error:  # individual native-text fallback is safe
+                        if attempt == 0:
+                            logger.warning("LLM slide catalog schema failed, repairing: %s", error)
+                            prompt += (
+                                "\nПредыдущий ответ отклонён валидацией со следующей ошибкой."
+                                " Верни строго корректный JSON по схеме, не повторяя ошибку:\n"
+                                f"{error}"
+                            )
+                            continue
+                        logger.warning("LLM slide catalog failed, native fallback: %s", error)
+                        break
             for asset, entry in zip(batch, parsed or [None] * len(batch), strict=True):
-                fallback = native_text_fallback(asset)
+                fallback = native_text_fallback(asset, boilerplate=boilerplate)
                 selected = entry or fallback.entry
                 if selected is not None:
                     result[asset.slide_num] = selected

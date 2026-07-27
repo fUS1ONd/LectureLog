@@ -333,3 +333,16 @@ async def test_network_errors_exhaust_retries(monkeypatch):
     client = LlmClient(fake, ModelCooldown())
     with pytest.raises(RuntimeError):
         await client.call("q", models=["m1"], retries=3)
+
+
+@pytest.mark.asyncio
+async def test_max_tokens_override_is_forwarded():
+    """Каталогу слайдов нужен больший потолок ответа, чем дефолтные 4096."""
+    fake = FakeAsyncOpenAI([_resp("ok"), _resp("ok")])
+    client = LlmClient(fake, ModelCooldown())
+
+    await client.call("q", models=["m1"], max_tokens=16384)
+    await client.call("q", models=["m1"])
+
+    assert fake.chat.completions.kwargs_history[0]["max_tokens"] == 16384
+    assert fake.chat.completions.kwargs_history[1]["max_tokens"] == 4096
