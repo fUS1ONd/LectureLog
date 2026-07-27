@@ -26,3 +26,15 @@ def test_llm_config_effort_per_stage_defaults(monkeypatch):
     # усиленная проверка: конкретный дефолт, а не просто принадлежность множеству
     assert cfg.effort_split == "medium"
     assert cfg.effort_render == "medium"
+
+
+def test_llm_config_max_tokens_default_matches_model_ceiling(monkeypatch):
+    """Потолок ответа по умолчанию — предел моделей Gemini, обрезка ответа нам не нужна."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    assert LlmConfig().max_tokens == 65536
+
+
+def test_llm_config_max_tokens_is_configurable(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "8192")
+    assert LlmConfig().max_tokens == 8192

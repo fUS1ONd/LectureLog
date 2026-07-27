@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
     # Транспорт LLM: OpenRouter (BYOK) через openai SDK вместо пула ключей Gemini.
     openai_client = AsyncOpenAI(base_url=cfg.llm.base_url, api_key=cfg.llm.openrouter_key)
     cooldown = ModelCooldown()
-    llm = LlmClient(openai_client, cooldown)
+    llm = LlmClient(openai_client, cooldown, max_tokens=cfg.llm.max_tokens)
 
     transcriber = transcriber_factory(cfg.transcribe)
     transcribe_model = (

@@ -337,7 +337,7 @@ async def test_network_errors_exhaust_retries(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_max_tokens_override_is_forwarded():
-    """Каталогу слайдов нужен больший потолок ответа, чем дефолтные 4096."""
+    """Отдельный вызов может опустить потолок ниже общего, не трогая остальные стадии."""
     fake = FakeAsyncOpenAI([_resp("ok"), _resp("ok")])
     client = LlmClient(fake, ModelCooldown())
 
@@ -345,4 +345,15 @@ async def test_max_tokens_override_is_forwarded():
     await client.call("q", models=["m1"])
 
     assert fake.chat.completions.kwargs_history[0]["max_tokens"] == 16384
-    assert fake.chat.completions.kwargs_history[1]["max_tokens"] == 4096
+    assert fake.chat.completions.kwargs_history[1]["max_tokens"] == 65536
+
+
+@pytest.mark.asyncio
+async def test_client_default_max_tokens_comes_from_configuration():
+    """Потолок ответа задаётся настройкой, а не зашит в клиенте."""
+    fake = FakeAsyncOpenAI([_resp("ok")])
+    client = LlmClient(fake, ModelCooldown(), max_tokens=8192)
+
+    await client.call("q", models=["m1"])
+
+    assert fake.chat.completions.kwargs_history[0]["max_tokens"] == 8192

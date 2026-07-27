@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 UsageCallback = Callable[[dict], Any]
 
-_DEFAULT_MAX_TOKENS = 4096
+_DEFAULT_MAX_TOKENS = 65536
 _BYOK_PROVIDER = {"only": ["google-ai-studio"], "allow_fallbacks": False}
 # Бэк-офф между ретраями сетевых ошибок (ConnectTimeout и т.п.): разовый флап
 # сети не должен ронять всю задачу — повтор почти всегда проходит.
@@ -113,9 +113,16 @@ def _build_messages(prompt: str, images: list[bytes] | None) -> list[dict]:
 class LlmClient:
     """Тонкая обёртка над AsyncOpenAI (OpenRouter) с cooldown-ретраями на 429."""
 
-    def __init__(self, async_openai_client: Any, cooldown: ModelCooldown) -> None:
+    def __init__(
+        self,
+        async_openai_client: Any,
+        cooldown: ModelCooldown,
+        *,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
+    ) -> None:
         self._client = async_openai_client
         self._cooldown = cooldown
+        self._max_tokens = max_tokens
 
     async def call(
         self,
@@ -141,7 +148,7 @@ class LlmClient:
             kwargs: dict[str, Any] = {
                 "model": model,
                 "messages": messages,
-                "max_tokens": max_tokens or _DEFAULT_MAX_TOKENS,
+                "max_tokens": max_tokens or self._max_tokens,
                 "extra_body": extra_body,
             }
             if response_json:

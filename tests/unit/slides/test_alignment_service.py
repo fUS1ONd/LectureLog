@@ -8,10 +8,7 @@ from lecturelog.domain.slides import (
     SlideAssignment,
     SlideCatalogEntry,
 )
-from lecturelog.infrastructure.slides.alignment.service import (
-    CATALOG_MAX_TOKENS,
-    DocumentAlignmentService,
-)
+from lecturelog.infrastructure.slides.alignment.service import DocumentAlignmentService
 from lecturelog.infrastructure.srt import parse_srt_blocks
 
 
@@ -318,8 +315,8 @@ async def test_native_catalog_filters_deck_wide_header(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_catalog_call_raises_output_ceiling(tmp_path):
-    """Каталог обрезался по дефолтному потолку в 4096 токенов — вызову нужен свой лимит."""
+async def test_catalog_does_not_lower_output_ceiling(tmp_path):
+    """Каталог не занижает потолок ответа — иначе JSON снова начнёт обрезаться."""
     image = tmp_path / "slide.png"
     image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
     prompts = tmp_path / "prompts"
@@ -347,8 +344,7 @@ async def test_catalog_call_raises_output_ceiling(tmp_path):
         [SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")], None
     )
 
-    assert llm.calls[0]["max_tokens"] == CATALOG_MAX_TOKENS
-    assert CATALOG_MAX_TOKENS > 4096
+    assert llm.calls[0].get("max_tokens") is None
 
 
 @pytest.mark.asyncio

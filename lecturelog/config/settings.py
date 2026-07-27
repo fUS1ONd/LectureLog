@@ -77,6 +77,9 @@ class LlmConfig(BaseSettings):
         "google/gemini-3.5-flash-lite,google/gemini-3.5-flash,google/gemini-3.6-flash",
         alias="LLM_MODELS_RENDER",
     )
+    # Потолок ответа (включая reasoning-токены). Обрезанный JSON рвал каталог
+    # слайдов молча, поэтому по умолчанию берём предел самих моделей Gemini.
+    max_tokens: int = Field(65536, alias="LLM_MAX_TOKENS")
     concurrency_subsplit: int = Field(2, alias="LLM_CONCURRENCY_SUBSPLIT")
     concurrency_render: int = Field(5, alias="LLM_CONCURRENCY_RENDER")
     # reasoning effort по стадиям: контентные стадии — medium; на low модель

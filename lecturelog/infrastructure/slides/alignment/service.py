@@ -32,10 +32,6 @@ from lecturelog.infrastructure.srt import parse_srt_blocks, parse_srt_time
 
 logger = logging.getLogger(__name__)
 _NON_MATCHABLE_ROLES = {"blank"}
-# Многословные модели упирались в общий потолок 4096 и отдавали обрезанный JSON,
-# из-за чего весь batch молча деградировал в native text. Берём предел самих моделей
-# Gemini (65536): платим за фактические токены ответа, а не за лимит.
-CATALOG_MAX_TOKENS = 65536
 
 
 @dataclass(frozen=True)
@@ -162,7 +158,6 @@ class DocumentAlignmentService:
                             response_json=True,
                             effort=self._effort,
                             temperature=0,
-                            max_tokens=CATALOG_MAX_TOKENS,
                             on_usage=on_usage,
                         )
                         parsed = parse_catalog_response(raw, expected)
