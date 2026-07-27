@@ -5,6 +5,28 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+def strict_json_schema(model: type[BaseModel]) -> dict:
+    """JSON Schema в виде, который принимает strict-режим провайдера.
+
+    Провайдер гарантирует схему, только если каждое поле объявлено обязательным,
+    а лишние поля запрещены. Pydantic же выносит в required лишь поля без
+    значения по умолчанию, поэтому схему приходится дожимать.
+    """
+    return _tighten(model.model_json_schema())
+
+
+def _tighten(node: object) -> object:
+    if isinstance(node, list):
+        return [_tighten(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    tightened = {key: _tighten(value) for key, value in node.items() if key != "default"}
+    if tightened.get("type") == "object" and "properties" in tightened:
+        tightened["required"] = list(tightened["properties"])
+        tightened["additionalProperties"] = False
+    return tightened
+
+
 class CatalogEntryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -357,3 +357,19 @@ async def test_client_default_max_tokens_comes_from_configuration():
     await client.call("q", models=["m1"])
 
     assert fake.chat.completions.kwargs_history[0]["max_tokens"] == 8192
+
+
+@pytest.mark.asyncio
+async def test_response_schema_is_sent_in_strict_mode():
+    """json_object гарантирует лишь валидный JSON; схему провайдер соблюдает только в strict."""
+    fake = FakeAsyncOpenAI([_resp("{}")])
+    client = LlmClient(fake, ModelCooldown())
+    schema = {"type": "object", "properties": {"a": {"type": "integer"}}, "required": ["a"]}
+
+    await client.call("q", models=["m1"], response_schema=schema, response_schema_name="catalog")
+
+    sent = fake.chat.completions.kwargs_history[0]["response_format"]
+    assert sent["type"] == "json_schema"
+    assert sent["json_schema"]["name"] == "catalog"
+    assert sent["json_schema"]["strict"] is True
+    assert sent["json_schema"]["schema"] == schema

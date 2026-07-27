@@ -410,3 +410,52 @@ async def test_catalog_falls_back_after_single_failed_repair(tmp_path):
     assert len(llm.calls) == 2
     assert entries[1].title == "запасной текст"
     assert verified == set()
+
+
+@pytest.mark.asyncio
+async def test_catalog_and_semantic_calls_use_strict_schema(tmp_path):
+    """Оба структурированных вызова матчера должны идти со схемой, а не с json_object."""
+    image = tmp_path / "slide.png"
+    image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    (prompts / "document_slide_catalog_v1.md").write_text("catalog")
+    (prompts / "document_slide_semantic_match_v1.md").write_text("semantic")
+    llm = ScriptedLlm(
+        [
+            json.dumps(
+                {
+                    "slides": [
+                        {
+                            "slide_num": 1,
+                            "role": "content",
+                            "title": "Бинарное дерево",
+                            "visible_text": "Бинарное дерево поиска",
+                            "source_concepts": ["дерево поиска"],
+                        }
+                    ]
+                }
+            ),
+            json.dumps(
+                {
+                    "slide_num": 1,
+                    "global_section_id": 0,
+                    "evidence_block_ids": [1],
+                    "evidence_quote": "Обсуждаем бинарное дерево поиска",
+                    "semantic_tier": "explicit",
+                }
+            ),
+        ]
+    )
+    service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
+
+    await service.align(
+        assets=[SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")],
+        section_layout=_layout(),
+        srt_content=_srt(),
+    )
+
+    catalog_schema = llm.calls[0]["response_schema"]
+    semantic_schema = llm.calls[1]["response_schema"]
+    assert "slides" in catalog_schema["properties"]
+    assert set(semantic_schema["required"]) == set(semantic_schema["properties"])

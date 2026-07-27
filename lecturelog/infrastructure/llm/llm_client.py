@@ -132,6 +132,8 @@ class LlmClient:
         *,
         on_usage: UsageCallback | Callable[[dict], Awaitable[None]] | None = None,
         response_json: bool = False,
+        response_schema: dict | None = None,
+        response_schema_name: str = "response",
         effort: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
@@ -151,7 +153,18 @@ class LlmClient:
                 "max_tokens": max_tokens or self._max_tokens,
                 "extra_body": extra_body,
             }
-            if response_json:
+            if response_schema is not None:
+                # strict-режим: провайдер обязан вернуть все поля схемы, тогда как
+                # json_object гарантирует лишь синтаксически валидный JSON.
+                kwargs["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": response_schema_name,
+                        "strict": True,
+                        "schema": response_schema,
+                    },
+                }
+            elif response_json:
                 kwargs["response_format"] = {"type": "json_object"}
             if temperature is not None:
                 kwargs["temperature"] = temperature

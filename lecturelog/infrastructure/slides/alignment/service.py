@@ -26,6 +26,11 @@ from lecturelog.infrastructure.slides.alignment.grounding import (
     evidence_specificity,
 )
 from lecturelog.infrastructure.slides.alignment.retrieval import generate_candidates
+from lecturelog.infrastructure.slides.alignment.schemas import (
+    CatalogBatchResponse,
+    SemanticMatchResponse,
+    strict_json_schema,
+)
 from lecturelog.infrastructure.slides.alignment.semantic import validate_semantic_response
 from lecturelog.infrastructure.slides.alignment.sequence import AlignmentWeights, align_sequence
 from lecturelog.infrastructure.srt import parse_srt_blocks, parse_srt_time
@@ -156,6 +161,8 @@ class DocumentAlignmentService:
                             models=self._models,
                             images=images,
                             response_json=True,
+                            response_schema=strict_json_schema(CatalogBatchResponse),
+                            response_schema_name="slide_catalog",
                             effort=self._effort,
                             temperature=0,
                             on_usage=on_usage,
@@ -217,6 +224,8 @@ class DocumentAlignmentService:
                 prompt=prompt,
                 models=self._models,
                 response_json=True,
+                response_schema=strict_json_schema(SemanticMatchResponse),
+                response_schema_name="slide_semantic_match",
                 effort=self._effort,
                 temperature=0,
                 on_usage=on_usage,
@@ -233,6 +242,8 @@ class DocumentAlignmentService:
                     prompt=prompt + "\nНезависимо перепроверь strong verdict.",
                     models=self._models,
                     response_json=True,
+                    response_schema=strict_json_schema(SemanticMatchResponse),
+                    response_schema_name="slide_semantic_match",
                     effort=self._effort,
                     temperature=0,
                     on_usage=on_usage,
