@@ -410,3 +410,46 @@ def test_slide_matcher_effort_is_independent_from_subsplit(tmp_path):
     )
 
     assert structurizer._document_alignment._effort == "low"
+
+
+def test_slide_matcher_models_are_independent_from_subsplit(tmp_path):
+    """У матчера своя ротация: в неё добавляется модель, не подверженная RECITATION."""
+    structurizer = GeminiStructurizer(
+        gemini_client=object(),
+        split_models=["m"],
+        subsplit_models=["google/gemini-3.6-flash"],
+        render_models=["m"],
+        concurrency_subsplit=1,
+        concurrency_render=1,
+        prompts_dir=tmp_path,
+        effort_split="medium",
+        effort_subsplit="medium",
+        effort_render="medium",
+        slide_match_models=["google/gemini-3.6-flash", "google/gemma-4-31b-it:free"],
+    )
+
+    assert structurizer._document_alignment._models == [
+        "google/gemini-3.6-flash",
+        "google/gemma-4-31b-it:free",
+    ]
+
+
+def test_slide_matcher_models_fall_back_to_subsplit(tmp_path):
+    """Без явного списка поведение прежнее — модели стадии SUBSPLIT."""
+    structurizer = GeminiStructurizer(
+        gemini_client=object(),
+        split_models=["m"],
+        subsplit_models=["google/gemini-3.6-flash", "google/gemini-3.5-flash"],
+        render_models=["m"],
+        concurrency_subsplit=1,
+        concurrency_render=1,
+        prompts_dir=tmp_path,
+        effort_split="medium",
+        effort_subsplit="medium",
+        effort_render="medium",
+    )
+
+    assert structurizer._document_alignment._models == [
+        "google/gemini-3.6-flash",
+        "google/gemini-3.5-flash",
+    ]

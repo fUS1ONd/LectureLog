@@ -92,6 +92,11 @@ class LlmConfig(BaseSettings):
     # reasoning модель хуже держит схему (пропускает обязательные поля), поэтому
     # у матчера свой effort, независимый от контентных стадий.
     effort_slide_match: str = Field("low", alias="LLM_EFFORT_SLIDE_MATCH")
+    # Своя ротация моделей у матчера: Gemini обрывает каталог слайдов по
+    # RECITATION на страницах с цитатами из официальных документов, а открытые
+    # веса (gemma) тем же фильтром не ограничены. Пусто — берём модели SUBSPLIT,
+    # то есть прежнее поведение.
+    models_slide_match: str = Field("", alias="LLM_MODELS_SLIDE_MATCH")
 
     @property
     def split_models(self) -> list[str]:
@@ -104,6 +109,10 @@ class LlmConfig(BaseSettings):
     @property
     def render_models(self) -> list[str]:
         return _split_csv(self.models_render)
+
+    @property
+    def slide_match_models(self) -> list[str]:
+        return _split_csv(self.models_slide_match) or self.subsplit_models
 
 
 class FramesConfig(BaseSettings):

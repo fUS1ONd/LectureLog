@@ -47,3 +47,33 @@ def test_slide_match_effort_defaults_to_low(monkeypatch):
     cfg = LlmConfig()
     assert cfg.effort_slide_match == "low"
     assert cfg.effort_subsplit == "medium"
+
+
+def test_slide_match_models_default_to_subsplit(monkeypatch):
+    """Без явной настройки матчер работает на тех же моделях, что и раньше."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.delenv("LLM_MODELS_SLIDE_MATCH", raising=False)
+    monkeypatch.setenv("LLM_MODELS_SUBSPLIT", "google/gemini-3.6-flash,google/gemini-3.5-flash")
+
+    cfg = LlmConfig()
+
+    assert cfg.slide_match_models == cfg.subsplit_models
+
+
+def test_slide_match_models_can_be_set_independently(monkeypatch):
+    """У каталога слайдов своя ротация: Gemini рвёт батчи по RECITATION, gemma — нет."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("LLM_MODELS_SUBSPLIT", "google/gemini-3.6-flash")
+    monkeypatch.setenv(
+        "LLM_MODELS_SLIDE_MATCH",
+        "google/gemini-3.6-flash,google/gemini-3.5-flash-lite,google/gemma-4-31b-it:free",
+    )
+
+    cfg = LlmConfig()
+
+    assert cfg.slide_match_models == [
+        "google/gemini-3.6-flash",
+        "google/gemini-3.5-flash-lite",
+        "google/gemma-4-31b-it:free",
+    ]
+    assert cfg.subsplit_models == ["google/gemini-3.6-flash"]
