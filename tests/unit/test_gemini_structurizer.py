@@ -518,7 +518,56 @@ async def test_v2_render_prompt_carries_slide_spellings(tmp_path, prompts_dir):
     )
 
     render_prompt = gemini.recorded_calls[-1]["prompt"]
-    assert "Написания со слайдов этого раздела" in render_prompt
+    assert "Написания со слайдов лекции" in render_prompt
     assert "Бинарное дерево поиска" in render_prompt
     # Картинки в рендер по-прежнему не уходят: контекст передаётся текстом.
     assert all(not call["images"] for call in gemini.recorded_calls)
+
+
+@pytest.mark.asyncio
+async def test_render_context_covers_unassigned_slides(tmp_path, prompts_dir):
+    """Потерянный слайд обязан подсказывать написание.
+
+    Слайд 7 (ENIAC) не привязался именно потому, что ASR дал «Мониак». Если
+    подсказки брать только с привязанных слайдов, круг не разорвать: искажение
+    мешает матчингу, а без матчинга нет подсказки для его исправления.
+    """
+    srt = tmp_path / "t.srt"
+    srt.write_text(
+        "1\n00:00:00,000 --> 00:00:10,000\nРазберём бинарное дерево поиска и его вершины.\n",
+        encoding="utf-8",
+    )
+    matched = tmp_path / "slide1.png"
+    matched.write_bytes(b"slide")
+    lost = tmp_path / "slide2.png"
+    lost.write_bytes(b"slide")
+    topics_json = json.dumps([{"title": "Деревья", "start": "0:00", "end": "0:10"}])
+    sections_json = json.dumps([{"title": "Поиск", "start": "0:00", "end": "0:10"}])
+    gemini = ScriptedGemini([topics_json, sections_json, "Бинарное дерево поиска.\n\nВершины."])
+    structurizer = _make_structurizer(gemini, prompts_dir)
+    structurizer._document_alignment_mode = "v2"
+
+    await structurizer.structurize(
+        srt_path=srt,
+        slide_assets=[
+            SlideAsset(
+                1,
+                matched,
+                "document",
+                extracted_text="Бинарное дерево поиска. Вершины.",
+                native_text_quality="good",
+            ),
+            SlideAsset(
+                2,
+                lost,
+                "document",
+                extracted_text="ENIAC и перфокарты",
+                native_text_quality="good",
+            ),
+        ],
+        context=StructurizeContext("audio"),
+        output_dir=tmp_path / "out",
+    )
+
+    render_prompt = gemini.recorded_calls[-1]["prompt"]
+    assert "ENIAC" in render_prompt

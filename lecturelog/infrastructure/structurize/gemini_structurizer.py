@@ -64,7 +64,7 @@ def _slide_context_block(entries: list[SlideCatalogEntry]) -> str:
             parts.append("термины: " + ", ".join(terms))
         lines.append("; ".join(parts))
     return (
-        "\n## Написания со слайдов этого раздела\n\n"
+        "\n## Написания со слайдов лекции\n\n"
         "Ниже — как термины и имена записаны на слайдах. Транскрипт получен"
         " распознаванием речи и мог их исказить: если в тексте встречается"
         " явно искажённый вариант, пиши как на слайде.\n"
@@ -443,14 +443,10 @@ class GeminiStructurizer(Structurizer):
         section_prompt_template = self._read_prompt("section_v1.md")
         render_sem = asyncio.Semaphore(self._concurrency_render)
 
-        # Слайды, отнесённые матчером к разделу: их написания пойдут в промпт
-        # рендера как справочник для исправления искажений ASR.
-        catalog_by_section: dict[int, list[SlideCatalogEntry]] = {}
-        for assignment in v2_assignments:
-            entry = v2_catalog.get(assignment.slide_num)
-            if entry is None or assignment.global_section_id is None:
-                continue
-            catalog_by_section.setdefault(assignment.global_section_id, []).append(entry)
+        # Написания берём со всей колоды, а не только с привязанных слайдов:
+        # слайд теряется как раз тогда, когда ASR исказил его термин, и без него
+        # подсказка не дойдёт именно туда, где нужна (ENIAC → «Мониак»).
+        slide_context = _slide_context_block([v2_catalog[num] for num in sorted(v2_catalog)])
 
         render_tasks = []
         global_idx = 0
@@ -471,9 +467,7 @@ class GeminiStructurizer(Structurizer):
                             slide_bytes=slide_bytes
                             if self._document_alignment_mode != "v2"
                             else [],
-                            slide_context=_slide_context_block(
-                                catalog_by_section.get(global_idx, [])
-                            ),
+                            slide_context=slide_context,
                             semaphore=render_sem,
                             on_usage=on_usage,
                         )
