@@ -2,6 +2,7 @@ import pytest
 
 from lecturelog.domain.models import Section, Topic
 from lecturelog.domain.ports import SlideImage
+from lecturelog.domain.slides import SlidePlacement
 from lecturelog.infrastructure.export.obsidian_exporter import ObsidianExporter, _slugify
 
 
@@ -104,3 +105,69 @@ async def test_export_slides_without_marker_fall_back_to_block(tmp_path):
     )
     md = (result.output_root / "конспект.md").read_text(encoding="utf-8")
     assert "![Слайд 1](slides/slide-01.png)\n\nТекст." in md
+
+
+@pytest.mark.asyncio
+async def test_gallery_after_content_is_rendered_below_section_text(tmp_path):
+    """Галерея в начале раздела опережала свой материал и вклинивалась перед чужим текстом."""
+    frag = tmp_path / "f1.mp3"
+    frag.write_bytes(b"audio")
+    slide = tmp_path / "s1.png"
+    slide.write_bytes(b"png")
+    sec = Section(title="В", start="0:00", end="5:00", content="Текст раздела.", slide_indices=[1])
+    topic = Topic(title="Т", start="0:00", end="5:00", sections=[sec], slide_indices=[1])
+
+    exporter = ObsidianExporter()
+    result = await exporter.export(
+        topics=[topic],
+        media_fragments=[frag],
+        slide_images=[SlideImage(path=slide)],
+        output_dir=tmp_path / "export",
+        media_kind="audio",
+        slide_placements=(
+            SlidePlacement(
+                1,
+                "section_gallery",
+                0,
+                gallery_position="after_content",
+                anchor_confidence="probable",
+                fallback_reason="weak_evidence_only",
+            ),
+        ),
+    )
+
+    md = (result.output_root / "конспект.md").read_text(encoding="utf-8")
+    assert "Текст раздела.\n\n![Слайд 1](slides/slide-01.png)" in md
+
+
+@pytest.mark.asyncio
+async def test_gallery_before_content_keeps_previous_layout(tmp_path):
+    """Позиция before_content остаётся рабочей: её просят кадры видео и legacy-адаптер."""
+    frag = tmp_path / "f1.mp3"
+    frag.write_bytes(b"audio")
+    slide = tmp_path / "s1.png"
+    slide.write_bytes(b"png")
+    sec = Section(title="В", start="0:00", end="5:00", content="Текст раздела.", slide_indices=[1])
+    topic = Topic(title="Т", start="0:00", end="5:00", sections=[sec], slide_indices=[1])
+
+    exporter = ObsidianExporter()
+    result = await exporter.export(
+        topics=[topic],
+        media_fragments=[frag],
+        slide_images=[SlideImage(path=slide)],
+        output_dir=tmp_path / "export",
+        media_kind="audio",
+        slide_placements=(
+            SlidePlacement(
+                1,
+                "section_gallery",
+                0,
+                gallery_position="before_content",
+                anchor_confidence="fallback",
+                fallback_reason="legacy_export_adapter",
+            ),
+        ),
+    )
+
+    md = (result.output_root / "конспект.md").read_text(encoding="utf-8")
+    assert "![Слайд 1](slides/slide-01.png)\n\nТекст раздела." in md

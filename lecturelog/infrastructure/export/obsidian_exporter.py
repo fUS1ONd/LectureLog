@@ -164,10 +164,13 @@ class ObsidianExporter(Exporter):
                         lines.append(f"![[{media_rel}]]")
                 lines.append("")
 
-                # Кадры с маркером <!-- slide:N --> встают инлайн в текст;
-                # без маркера (документные слайды, старые данные) — блоком
-                # перед контентом, как раньше.
+                # Кадры с маркером <!-- slide:N --> встают инлайн в текст; без
+                # маркера — галереей, положение которой задаёт gallery_position:
+                # after_content не даёт слайдам опережать свой материал и вставать
+                # перед чужим абзацем.
                 content = section.content
+                gallery_before: list[str] = []
+                gallery_after: list[str] = []
                 for placement in placements_by_section.get(global_section_idx, []):
                     slide_idx = placement.slide_num
                     target = slide_targets.get(slide_idx)
@@ -180,12 +183,15 @@ class ObsidianExporter(Exporter):
                     marker = f"<!-- slide:{slide_idx} -->"
                     if placement.output_kind == "inline" and marker in content:
                         content = content.replace(marker, image_line)
+                    elif placement.gallery_position == "after_content":
+                        gallery_after.extend((image_line, ""))
                     else:
-                        lines.append(image_line)
-                        lines.append("")
+                        gallery_before.extend((image_line, ""))
 
+                lines.extend(gallery_before)
                 lines.append(content.strip())
                 lines.append("")
+                lines.extend(gallery_after)
 
                 global_section_idx += 1
 

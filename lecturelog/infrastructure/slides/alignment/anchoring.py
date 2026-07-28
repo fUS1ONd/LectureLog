@@ -29,14 +29,14 @@ def anchor_assignment(
             anchor_confidence="none",
             fallback_reason=assignment.reason_code,
         )
-    if assignment.assignment_confidence != "verified" or entry is None:
+    if entry is None:
         return markdown, SlidePlacement(
             assignment.slide_num,
             "section_gallery",
             assignment.global_section_id,
-            gallery_position="before_content",
+            gallery_position="after_content",
             anchor_confidence="probable",
-            fallback_reason="assignment_not_verified",
+            fallback_reason="catalog_entry_missing",
         )
     # Existing markers are not semantic content and must not shift the stable
     # content-block index expected by inject_marker.
@@ -51,11 +51,24 @@ def anchor_assignment(
             assignment.slide_num,
             "section_gallery",
             assignment.global_section_id,
-            gallery_position="before_content",
+            gallery_position="after_content",
             anchor_confidence="fallback",
             fallback_reason="no_safe_semantic_block",
         )
-    _, block_index = max(ranked)
+    specificity, block_index = max(ranked)
+    verified = assignment.assignment_confidence == "verified"
+    # Для неверифицированного назначения одного лишь пересечения слов мало: слайд
+    # рядом со случайно похожим абзацем вводит в заблуждение сильнее, чем галерея.
+    # Дословная фраза слайда или совпавший редкий токен — достаточное основание.
+    if not verified and specificity[0] < 1:
+        return markdown, SlidePlacement(
+            assignment.slide_num,
+            "section_gallery",
+            assignment.global_section_id,
+            gallery_position="after_content",
+            anchor_confidence="probable",
+            fallback_reason="weak_evidence_only",
+        )
     try:
         anchored_markdown = inject_marker(
             markdown,
@@ -69,7 +82,7 @@ def anchor_assignment(
             assignment.slide_num,
             "section_gallery",
             assignment.global_section_id,
-            gallery_position="before_content",
+            gallery_position="after_content",
             anchor_confidence="fallback",
             fallback_reason="anchor_injection_failed",
         )
@@ -80,7 +93,7 @@ def anchor_assignment(
             assignment.slide_num,
             "section_gallery",
             assignment.global_section_id,
-            gallery_position="before_content",
+            gallery_position="after_content",
             anchor_confidence="fallback",
             fallback_reason="anchor_injection_failed",
         )
@@ -92,6 +105,6 @@ def anchor_assignment(
             assignment.global_section_id,
             block_index=block_index,
             side="after",
-            anchor_confidence="verified",
+            anchor_confidence="verified" if verified else "probable",
         ),
     )
