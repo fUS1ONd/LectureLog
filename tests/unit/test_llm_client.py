@@ -5,8 +5,16 @@ import httpx
 import openai
 import pytest
 
+import lecturelog.infrastructure.llm.llm_client as mod
+from lecturelog.infrastructure.llm.llm_client import (
+    _NETWORK_BACKOFF_S as _NETWORK_BACKOFF_S_EXPECTED,
+)
 from lecturelog.infrastructure.llm.llm_client import LlmClient
 from lecturelog.infrastructure.llm.model_cooldown import ModelCooldown
+
+
+async def _no_sleep(_delay):
+    """Ретраи 5xx ждут по-настоящему — в тестах пауза не нужна."""
 
 
 class FakeCompletions:
@@ -53,6 +61,34 @@ def _resp(text, pt=10, ct=5):
     return R()
 
 
+def _truncated_resp(text, *, native_finish=None, choice_error=None):
+    """Ответ, оборванный апстримом: контент частичный, usage нулевой.
+
+    Так выглядят RECITATION-фильтр Gemini и 503 provider_overloaded от
+    OpenRouter — HTTP-ошибки при этом нет, приходит 200 с обрывком.
+    """
+
+    class M:
+        content = text
+
+    class C:
+        message = M()
+        finish_reason = "error"
+        native_finish_reason = native_finish
+        error = choice_error
+
+    class U:
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+
+    class R:
+        choices = [C()]
+        usage = U()
+
+    return R()
+
+
 def _rate_limit_error(raw_metadata: str) -> openai.RateLimitError:
     body = {
         "error": {
@@ -77,6 +113,22 @@ def _authentication_error(*, byok: bool, sdk_unwrapped: bool = False) -> openai.
     request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
     response = httpx.Response(401, request=request, json=body)
     return openai.AuthenticationError(message="authentication failed", response=response, body=body)
+
+
+def _upstream_unavailable_error() -> openai.InternalServerError:
+    """503 от Google AI Studio: перегрузка провайдера, а не проблема запроса."""
+    body = {
+        "error": {
+            "message": "Provider returned error",
+            "code": 503,
+            "metadata": {"provider_name": "Google AI Studio", "provider_error_code": "503"},
+        }
+    }
+    request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    response = httpx.Response(503, request=request, json=body)
+    return openai.InternalServerError(
+        message="Provider returned error", response=response, body=body
+    )
 
 
 _RPM_RAW = json.dumps(
@@ -373,3 +425,123 @@ async def test_response_schema_is_sent_in_strict_mode():
     assert sent["json_schema"]["name"] == "catalog"
     assert sent["json_schema"]["strict"] is True
     assert sent["json_schema"]["schema"] == schema
+
+
+@pytest.mark.asyncio
+async def test_recitation_truncation_retries_on_other_model():
+    """RECITATION обрывает генерацию детерминированно — повтор той же модели бесполезен."""
+    cooldown = SpyModelCooldown()
+    fake = FakeAsyncOpenAI(
+        [
+            _truncated_resp('{"slides":[{"slide_num":13,"title":"Кома', native_finish="RECITATION"),
+            _resp("полный ответ"),
+        ]
+    )
+    client = LlmClient(fake, cooldown)
+
+    out = await client.call("q", models=["m1", "m2"])
+
+    assert out == "полный ответ"
+    history = fake.chat.completions.kwargs_history
+    assert [item["model"] for item in history] == ["m1", "m2"]
+    assert [model for model, _ttl in cooldown.marked] == ["m1"]
+
+
+@pytest.mark.asyncio
+async def test_provider_overloaded_truncation_is_retried():
+    """503 в SSE-потоке приходит как 200 с обрывком — это транзиентная ошибка, не ответ."""
+    fake = FakeAsyncOpenAI(
+        [
+            _truncated_resp(
+                '{"slides":[{"slide_num":1,"title":"Разр',
+                choice_error={
+                    "code": 503,
+                    "message": "JSON error injected into SSE stream",
+                    "metadata": {"error_type": "provider_overloaded"},
+                },
+            ),
+            _resp("полный ответ"),
+        ]
+    )
+    client = LlmClient(fake, SpyModelCooldown())
+
+    out = await client.call("q", models=["m1", "m2"])
+
+    assert out == "полный ответ"
+    assert fake.chat.completions.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_truncated_response_never_returned_to_caller():
+    """Обрывок не должен утекать наверх как валидный ответ: там его ждёт парсер схемы."""
+    fake = FakeAsyncOpenAI(
+        [
+            _truncated_resp('{"slides":[{"slide_num":13', native_finish="RECITATION")
+            for _ in range(3)
+        ]
+    )
+    client = LlmClient(fake, ModelCooldown())
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await client.call("q", models=["m1"], retries=3)
+
+    assert "RECITATION" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_usage_not_emitted_for_truncated_response():
+    """Нулевой usage оборванного ответа не должен попадать в статистику задачи."""
+    seen = []
+    fake = FakeAsyncOpenAI([_truncated_resp("обрывок", native_finish="RECITATION"), _resp("ok")])
+    client = LlmClient(fake, SpyModelCooldown())
+
+    await client.call("q", models=["m1", "m2"], on_usage=lambda p: seen.append(p))
+
+    assert [item["model"] for item in seen] == ["m2"]
+
+
+@pytest.mark.asyncio
+async def test_provider_unavailable_falls_back_to_next_model(monkeypatch):
+    """503 «high demand» транзиентен: задача не должна падать, пока есть другие модели."""
+    monkeypatch.setattr(mod.asyncio, "sleep", _no_sleep)
+    cooldown = SpyModelCooldown()
+    fake = FakeAsyncOpenAI([_upstream_unavailable_error(), _resp("вторая модель ответила")])
+    client = LlmClient(fake, cooldown)
+
+    out = await client.call("q", models=["m1", "m2"])
+
+    assert out == "вторая модель ответила"
+    history = fake.chat.completions.kwargs_history
+    assert [item["model"] for item in history] == ["m1", "m2"]
+    assert [model for model, _ttl in cooldown.marked] == ["m1"]
+
+
+@pytest.mark.asyncio
+async def test_provider_unavailable_exhausts_retries_with_clear_message(monkeypatch):
+    monkeypatch.setattr(mod.asyncio, "sleep", _no_sleep)
+    fake = FakeAsyncOpenAI([_upstream_unavailable_error() for _ in range(3)])
+    client = LlmClient(fake, ModelCooldown())
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await client.call("q", models=["m1"], retries=3)
+
+    assert "503" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_provider_unavailable_backs_off_between_retries(monkeypatch):
+    """«Try again later» без паузы бессмыслен: все попытки сгорают за доли секунды."""
+    slept: list[float] = []
+
+    async def fake_sleep(delay):
+        slept.append(delay)
+
+    monkeypatch.setattr(mod.asyncio, "sleep", fake_sleep)
+    fake = FakeAsyncOpenAI(
+        [_upstream_unavailable_error(), _upstream_unavailable_error(), _resp("ok")]
+    )
+    client = LlmClient(fake, SpyModelCooldown())
+
+    assert await client.call("q", models=["m1", "m2", "m3"]) == "ok"
+    # пауза нарастает с номером попытки, как и для сетевых ошибок
+    assert slept == [_NETWORK_BACKOFF_S_EXPECTED, _NETWORK_BACKOFF_S_EXPECTED * 2]
