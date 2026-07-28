@@ -194,7 +194,9 @@ class ScriptedGemini:
         self, prompt, models, images=None, *, on_usage=None, response_json=False, effort=None
     ):
         self.on_usage_seen.append(on_usage)
-        self.recorded_calls.append({"models": list(models), "effort": effort, "images": images})
+        self.recorded_calls.append(
+            {"models": list(models), "effort": effort, "images": images, "prompt": prompt}
+        )
         r = self._responses[self.calls]
         self.calls += 1
         return r
@@ -453,3 +455,70 @@ def test_slide_matcher_models_fall_back_to_subsplit(tmp_path):
         "google/gemini-3.6-flash",
         "google/gemini-3.5-flash",
     ]
+
+
+def test_slide_context_block_lists_catalog_terms():
+    """Рендер получает написания со слайда: ASR искажает имена, а слайд их знает."""
+    from lecturelog.domain.slides import SlideCatalogEntry
+    from lecturelog.infrastructure.structurize.gemini_structurizer import _slide_context_block
+
+    entry = SlideCatalogEntry(
+        7,
+        "content",
+        "ENIAC",
+        "первая ЭВМ, программирование переключателями",
+        source_concepts=("ENIAC", "перфокарты"),
+        transcript_language_terms=("ЭНИАК",),
+    )
+
+    block = _slide_context_block([entry])
+
+    assert "ENIAC" in block
+    assert "перфокарты" in block
+    # Блок обязан ограничивать применение: иначе рендер начнёт переносить в
+    # конспект то, чего в речи не было.
+    assert "не добавляй" in block.lower()
+
+
+def test_slide_context_block_is_empty_without_entries():
+    from lecturelog.infrastructure.structurize.gemini_structurizer import _slide_context_block
+
+    assert _slide_context_block([]) == ""
+
+
+@pytest.mark.asyncio
+async def test_v2_render_prompt_carries_slide_spellings(tmp_path, prompts_dir):
+    """Сквозная проверка: написания со слайда доходят до промпта рендера."""
+    srt = tmp_path / "t.srt"
+    srt.write_text(
+        "1\n00:00:00,000 --> 00:00:10,000\nРазберём бинарное дерево поиска и его вершины.\n",
+        encoding="utf-8",
+    )
+    slide = tmp_path / "slide.png"
+    slide.write_bytes(b"slide")
+    topics_json = json.dumps([{"title": "Деревья", "start": "0:00", "end": "0:10"}])
+    sections_json = json.dumps([{"title": "Поиск", "start": "0:00", "end": "0:10"}])
+    gemini = ScriptedGemini([topics_json, sections_json, "Бинарное дерево поиска.\n\nВершины."])
+    structurizer = _make_structurizer(gemini, prompts_dir)
+    structurizer._document_alignment_mode = "v2"
+
+    await structurizer.structurize(
+        srt_path=srt,
+        slide_assets=[
+            SlideAsset(
+                1,
+                slide,
+                "document",
+                extracted_text="Бинарное дерево поиска. Вершины.",
+                native_text_quality="good",
+            )
+        ],
+        context=StructurizeContext("audio"),
+        output_dir=tmp_path / "out",
+    )
+
+    render_prompt = gemini.recorded_calls[-1]["prompt"]
+    assert "Написания со слайдов этого раздела" in render_prompt
+    assert "Бинарное дерево поиска" in render_prompt
+    # Картинки в рендер по-прежнему не уходят: контекст передаётся текстом.
+    assert all(not call["images"] for call in gemini.recorded_calls)

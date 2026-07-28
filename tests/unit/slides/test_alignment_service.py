@@ -68,11 +68,15 @@ async def test_llm_catalog_and_semantic_verification_are_used(tmp_path):
         ]
     )
     service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
-    result = await service.align(
-        assets=[SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")],
-        section_layout=_layout(),
-        srt_content=_srt(),
-    )
+    result = (
+        await service.align(
+            assets=[
+                SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")
+            ],
+            section_layout=_layout(),
+            srt_content=_srt(),
+        )
+    ).assignments
     assert result[0].match_status == "discussed"
     assert len(llm.calls) == 2
     assert llm.calls[0]["images"]
@@ -86,19 +90,21 @@ async def test_deck_guard_marks_unrelated_deck(tmp_path):
     image = tmp_path / "slide.png"
     image.write_bytes(b"not-a-real-image")
     service = DocumentAlignmentService()
-    result = await service.align(
-        assets=[
-            SlideAsset(
-                1,
-                image,
-                "document",
-                extracted_text="Совершенно посторонняя квантовая химия",
-                native_text_quality="good",
-            )
-        ],
-        section_layout=_layout(),
-        srt_content=_srt(),
-    )
+    result = (
+        await service.align(
+            assets=[
+                SlideAsset(
+                    1,
+                    image,
+                    "document",
+                    extracted_text="Совершенно посторонняя квантовая химия",
+                    native_text_quality="good",
+                )
+            ],
+            section_layout=_layout(),
+            srt_content=_srt(),
+        )
+    ).assignments
     assert result[0].match_status == "deck_mismatch"
     assert result[0].reason_code.startswith("deck_guard")
 
@@ -239,11 +245,15 @@ async def test_navigation_role_requires_semantic_evidence(tmp_path):
     )
     service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
 
-    result = await service.align(
-        assets=[SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")],
-        section_layout=_layout(),
-        srt_content=_srt(),
-    )
+    result = (
+        await service.align(
+            assets=[
+                SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")
+            ],
+            section_layout=_layout(),
+            srt_content=_srt(),
+        )
+    ).assignments
 
     assert result[0].match_status == "discussed"
     assert result[0].global_section_id == 0
@@ -275,11 +285,15 @@ async def test_blank_role_remains_unmentioned(tmp_path):
     )
     service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts)
 
-    result = await service.align(
-        assets=[SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")],
-        section_layout=_layout(),
-        srt_content=_srt(),
-    )
+    result = (
+        await service.align(
+            assets=[
+                SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")
+            ],
+            section_layout=_layout(),
+            srt_content=_srt(),
+        )
+    ).assignments
 
     assert result[0].match_status == "unmentioned"
     assert result[0].reason_code == "service_role:blank"
@@ -459,3 +473,53 @@ async def test_catalog_and_semantic_calls_use_strict_schema(tmp_path):
     semantic_schema = llm.calls[1]["response_schema"]
     assert "slides" in catalog_schema["properties"]
     assert set(semantic_schema["required"]) == set(semantic_schema["properties"])
+
+
+@pytest.mark.asyncio
+async def test_align_returns_catalog_for_render_context(tmp_path):
+    """Каталог нужен рендеру: в нём имена собственные в правильном написании."""
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    (prompts / "document_slide_catalog_v2.md").write_text("catalog")
+    (prompts / "document_slide_semantic_match_v1.md").write_text("semantic")
+    image = tmp_path / "slide.png"
+    image.write_bytes(b"\x89PNGfake")
+    llm = ScriptedLlm(
+        [
+            json.dumps(
+                {
+                    "slides": [
+                        {
+                            "slide_num": 1,
+                            "role": "content",
+                            "title": "ENIAC",
+                            "visible_text": "первая ЭВМ",
+                            "source_concepts": ["ENIAC"],
+                            "transcript_language_terms": ["ЭНИАК"],
+                            "visual_summary": "",
+                            "formulas": [],
+                        }
+                    ]
+                }
+            ),
+            json.dumps(
+                {
+                    "slide_num": 1,
+                    "global_section_id": 0,
+                    "evidence_block_ids": [1],
+                    "evidence_quote": "Обсуждаем бинарное дерево поиска",
+                    "semantic_tier": "explicit",
+                }
+            ),
+        ]
+    )
+    service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
+
+    result = await service.align(
+        assets=[SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")],
+        section_layout=_layout(),
+        srt_content=_srt(),
+    )
+
+    assert result.catalog[1].title == "ENIAC"
+    assert result.assignments[0].slide_num == 1

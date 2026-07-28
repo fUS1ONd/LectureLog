@@ -12,6 +12,7 @@ from lecturelog.domain.ports import ProgressCallback, Structurizer, UsageCallbac
 from lecturelog.domain.slides import (
     SlideAsset,
     SlideAssignment,
+    SlideCatalogEntry,
     SlidePlacement,
     StructurizeContext,
     StructurizeResult,
@@ -37,6 +38,39 @@ def _parse_json(raw_text: str) -> Any:
         lines = [line for line in text.splitlines() if not line.startswith("```")]
         text = "\n".join(lines).strip()
     return json.loads(text)
+
+
+def _slide_context_block(entries: list[SlideCatalogEntry]) -> str:
+    """Справочник написаний со слайдов раздела для рендера.
+
+    ASR коверкает имена собственные и аббревиатуры («Мониак» вместо ENIAC), а на
+    слайде они записаны верно. Блок даёт рендеру эти написания и прямо запрещает
+    переносить в конспект то, чего не было в речи, — иначе исправление опечаток
+    превратится в пересказ слайдов.
+    """
+    if not entries:
+        return ""
+    lines: list[str] = []
+    for entry in entries:
+        terms = dict.fromkeys(
+            value.strip()
+            for value in (*entry.source_concepts, *entry.transcript_language_terms)
+            if value and value.strip()
+        )
+        parts = [f"- слайд {entry.slide_num}"]
+        if entry.title:
+            parts.append(f'заголовок: "{entry.title}"')
+        if terms:
+            parts.append("термины: " + ", ".join(terms))
+        lines.append("; ".join(parts))
+    return (
+        "\n## Написания со слайдов этого раздела\n\n"
+        "Ниже — как термины и имена записаны на слайдах. Транскрипт получен"
+        " распознаванием речи и мог их исказить: если в тексте встречается"
+        " явно искажённый вариант, пиши как на слайде.\n"
+        "Это справочник написаний, а не источник содержания: не добавляй в"
+        " конспект факты со слайдов, которых не было в речи лектора.\n\n" + "\n".join(lines) + "\n"
+    )
 
 
 async def _emit_progress(on_progress: ProgressCallback | None, value: int) -> None:
@@ -200,6 +234,7 @@ class GeminiStructurizer(Structurizer):
         slide_indices: list[int],
         slide_bytes: list[bytes],
         semaphore: asyncio.Semaphore,
+        slide_context: str = "",
         on_usage: UsageCallback | None = None,
     ) -> tuple[int, Section]:
         title = str(section_data["title"])
@@ -208,6 +243,8 @@ class GeminiStructurizer(Structurizer):
 
         fragment = extract_srt_fragment(srt_content, start, end)
         prompt = section_prompt_template.format(title=title, start=start, end=end)
+        if slide_context:
+            prompt = f"{prompt}\n{slide_context}"
         prompt = f"{prompt}\n{fragment}"
 
         related_images = [
@@ -303,14 +340,17 @@ class GeminiStructurizer(Structurizer):
         topics_sections: list[list[dict[str, Any]]] = [sections for _, sections in subsplit_results]
 
         v2_assignments: tuple[SlideAssignment, ...] = ()
+        v2_catalog: dict[int, SlideCatalogEntry] = {}
         if slide_assets and self._document_alignment_mode in {"shadow", "v2"}:
             try:
-                v2_assignments = await self._document_alignment.align(
+                alignment = await self._document_alignment.align(
                     assets=slide_assets,
                     section_layout=topics_sections,
                     srt_content=srt_content,
                     on_usage=on_usage,
                 )
+                v2_assignments = alignment.assignments
+                v2_catalog = alignment.catalog
             except Exception as error:  # noqa: BLE001 - explicit outer fail-safe
                 logger.exception(
                     "document alignment %s failed: %s",
@@ -403,6 +443,15 @@ class GeminiStructurizer(Structurizer):
         section_prompt_template = self._read_prompt("section_v1.md")
         render_sem = asyncio.Semaphore(self._concurrency_render)
 
+        # Слайды, отнесённые матчером к разделу: их написания пойдут в промпт
+        # рендера как справочник для исправления искажений ASR.
+        catalog_by_section: dict[int, list[SlideCatalogEntry]] = {}
+        for assignment in v2_assignments:
+            entry = v2_catalog.get(assignment.slide_num)
+            if entry is None or assignment.global_section_id is None:
+                continue
+            catalog_by_section.setdefault(assignment.global_section_id, []).append(entry)
+
         render_tasks = []
         global_idx = 0
         index_map: list[tuple[int, int]] = []
@@ -422,6 +471,9 @@ class GeminiStructurizer(Structurizer):
                             slide_bytes=slide_bytes
                             if self._document_alignment_mode != "v2"
                             else [],
+                            slide_context=_slide_context_block(
+                                catalog_by_section.get(global_idx, [])
+                            ),
                             semaphore=render_sem,
                             on_usage=on_usage,
                         )

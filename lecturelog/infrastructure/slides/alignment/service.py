@@ -48,6 +48,18 @@ class AlignmentTuning:
     weights: AlignmentWeights = AlignmentWeights()
 
 
+@dataclass(frozen=True)
+class AlignmentResult:
+    """Назначения плюс каталог: рендеру он нужен как справочник написаний.
+
+    ASR искажает имена собственные («Мониак» вместо ENIAC), а на слайде они
+    записаны верно — без каталога рендер такое исправить не может.
+    """
+
+    assignments: tuple[SlideAssignment, ...]
+    catalog: dict[int, SlideCatalogEntry]
+
+
 class DocumentAlignmentService:
     """Evidence-grounded document alignment with fail-closed LLM enrichment."""
 
@@ -73,7 +85,7 @@ class DocumentAlignmentService:
         section_layout: list[list[dict[str, object]]],
         srt_content: str,
         on_usage=None,
-    ) -> tuple[SlideAssignment, ...]:
+    ) -> AlignmentResult:
         blocks = parse_srt_blocks(srt_content)
         sections = self._section_refs(section_layout, blocks)
         entries, verified_catalog_slides = await self._catalog(assets, on_usage)
@@ -118,22 +130,25 @@ class DocumentAlignmentService:
             int(content_count * self._tuning.deck_min_supported_ratio + 0.999),
         )
         if content_count and supported < required:
-            return tuple(
-                item
-                if item.match_status == "duplicate"
-                else SlideAssignment(
-                    item.slide_num,
-                    "deck_mismatch",
-                    None,
-                    (),
-                    None,
-                    "unresolved",
-                    item.score,
-                    "deck_guard_insufficient_grounded_coverage",
-                )
-                for item in assignments
+            return AlignmentResult(
+                tuple(
+                    item
+                    if item.match_status == "duplicate"
+                    else SlideAssignment(
+                        item.slide_num,
+                        "deck_mismatch",
+                        None,
+                        (),
+                        None,
+                        "unresolved",
+                        item.score,
+                        "deck_guard_insufficient_grounded_coverage",
+                    )
+                    for item in assignments
+                ),
+                entries,
             )
-        return assignments
+        return AlignmentResult(assignments, entries)
 
     async def _catalog(
         self, assets: list[SlideAsset], on_usage
