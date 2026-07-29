@@ -285,7 +285,8 @@ class DocumentAlignmentService:
                 # Tier читаем тем же разбором, что и валидатор (включая форму
                 # [{...}]), а не отдельным json.loads(raw).get(...): на массиве
                 # это падало в AttributeError, который глотал общий except.
-                if parse_semantic_match(raw).semantic_tier != "strong":
+                first_verdict = parse_semantic_match(raw)
+                if first_verdict.semantic_tier != "strong":
                     return self._global_recovery(entry, sections, blocks)
                 second_raw = await self._llm.call(
                     prompt=prompt + "\nНезависимо перепроверь strong verdict.",
@@ -304,7 +305,15 @@ class DocumentAlignmentService:
                     blocks=blocks,
                     strong_judge_agrees=True,
                 )
-                if second and _tier_at_least(second.semantic_tier, "strong"):
+                # Подтверждением считается только тот же раздел: судья, уехавший
+                # в другой раздел, не перепроверил вердикт первого прохода, а
+                # выдал свой собственный — независимой проверки у такого раздела
+                # нет, и принимать его наравне с дважды подтверждённым нельзя.
+                if (
+                    second
+                    and second.global_section_id == first_verdict.global_section_id
+                    and _tier_at_least(second.semantic_tier, "strong")
+                ):
                     return (self._with_competition(second, candidates),)
                 return self._global_recovery(entry, sections, blocks)
             return (self._with_competition(first, candidates),)
