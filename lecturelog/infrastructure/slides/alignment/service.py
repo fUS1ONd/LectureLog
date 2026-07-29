@@ -41,6 +41,21 @@ from lecturelog.infrastructure.srt import parse_srt_blocks, parse_srt_time
 logger = logging.getLogger(__name__)
 _NON_MATCHABLE_ROLES = {"blank"}
 
+# Порядок значений semantic_tier (см. SemanticMatchResponse в schemas.py) от
+# слабого к сильному. Задан одним кортежем, чтобы сравнение силы вердикта
+# судьи не расползлось по коду в виде строковых литералов.
+_SEMANTIC_TIER_STRENGTH: tuple[str, ...] = ("none", "weak", "strong", "explicit")
+
+
+def _tier_at_least(tier: str, threshold: str) -> bool:
+    """Вердикт судьи не слабее порога — сравнение по позиции, а не литералом.
+
+    Судья может не просто подтвердить strong-вердикт, а повысить его до
+    explicit: такой результат сильнее порога и должен подтверждать раздел,
+    а не отбрасываться в пользу лексической догадки.
+    """
+    return _SEMANTIC_TIER_STRENGTH.index(tier) >= _SEMANTIC_TIER_STRENGTH.index(threshold)
+
 
 def normalize_empty_entry(entry: SlideCatalogEntry) -> SlideCatalogEntry:
     """Пустую запись модели считаем утверждением «на странице ничего нет».
@@ -289,7 +304,7 @@ class DocumentAlignmentService:
                     blocks=blocks,
                     strong_judge_agrees=True,
                 )
-                if second and second.semantic_tier == "strong":
+                if second and _tier_at_least(second.semantic_tier, "strong"):
                     return (self._with_competition(second, candidates),)
                 return self._global_recovery(entry, sections, blocks)
             return (self._with_competition(first, candidates),)
