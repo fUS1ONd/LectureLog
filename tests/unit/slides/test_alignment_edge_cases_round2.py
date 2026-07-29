@@ -158,6 +158,56 @@ async def test_судья_назвавший_другой_раздел_не_по
     )
 
 
+# ── Лексическое доказательство без участия модели ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_лексическое_совпадение_без_модели_не_даёт_explicit(tmp_path: Path) -> None:
+    """Модель ничего не подтверждала: потолок такого доказательства — strong.
+
+    Иначе страница с неподтверждённым каталогом получает inline-картинку с
+    уверенностью verified на пересечении двух общеупотребительных слов, и
+    anchoring пропускает её мимо проверки специфичности абзаца.
+
+    Решение владельца продукта по записи из очереди вопросов: чисто лексическое
+    совпадение никогда не выдаёт `explicit`. Тот же результат той же функции
+    путь `_global_recovery` уже понижает до `strong` — два пути обязаны
+    оценивать одно и то же доказательство одинаково.
+    """
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    (prompts / "document_slide_semantic_match_v1.md").write_text("semantic", encoding="utf-8")
+    blocks = parse_srt_blocks(
+        "1\n00:00:00,000 --> 00:00:04,000\n"
+        "Дальше по плану спиральная модель управления рисками\n\n"
+        "2\n00:00:05,000 --> 00:00:09,000\n"
+        "А теперь организация практики и сдача домашних заданий\n"
+    )
+    sections = (SectionRef(0, 0, 0, 0, 4.9), SectionRef(1, 0, 1, 5, 9))
+    entry = SlideCatalogEntry(
+        1,
+        "content",
+        "Спиральная модель",
+        "спиральная модель управления рисками",
+    )
+    candidates = generate_candidates(entry, sections, blocks)
+    # LLM есть, но каталог этой страницы модель не подтвердила (Gemini обрезал
+    # ответ фильтром цитирования) — матчинг идёт чисто лексическим путём.
+    llm = ScriptedLlm([])
+    service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts)
+
+    result = await service._verify(
+        entry, candidates, blocks, sections, None, catalog_verified=False
+    )
+
+    assert not llm.calls, "лексический путь не должен звать модель"
+    assert result, "лексическое доказательство не найдено — проверять нечего"
+    assert [item.semantic_tier for item in result] == ["strong"], (
+        "лексический путь без участия модели выдал вердикт сильнее strong: "
+        f"{[(item.global_section_id, item.semantic_tier) for item in result]}"
+    )
+
+
 # ── Пустая запись каталога ─────────────────────────────────────────
 
 

@@ -355,7 +355,11 @@ class DocumentAlignmentService:
                 block.start_s,
                 block.end_s,
                 candidate.lexical_score,
-                "explicit",
+                # Потолок чисто лексического доказательства — strong: модель
+                # это совпадение не подтверждала. explicit довёл бы страницу с
+                # неподтверждённым каталогом до anchor_confidence="verified", а
+                # verified снимает в anchoring проверку специфичности абзаца.
+                "strong",
                 candidate.visual_score,
             )
             return DocumentAlignmentService._with_competition(grounded, candidates)
@@ -382,6 +386,9 @@ class DocumentAlignmentService:
         recovered = self._lexical_ground(entry, recovered_pool, blocks)
         if recovered is None:
             return ()
+        # Тот же потолок, что и у `_lexical_ground`: без участия модели вердикт
+        # не поднимается выше strong. Понижение оставлено явным, чтобы правило
+        # держалось и в этом пути, если лексический путь когда-то изменят.
         return (replace(recovered, semantic_tier="strong"),)
 
     @staticmethod
