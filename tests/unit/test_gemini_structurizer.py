@@ -457,8 +457,8 @@ def test_slide_matcher_models_fall_back_to_subsplit(tmp_path):
     ]
 
 
-def test_slide_context_block_lists_catalog_terms():
-    """Рендер получает написания со слайда: ASR искажает имена, а слайд их знает."""
+def test_slide_context_block_limits_usage_to_spelling():
+    """Блок обязан ограничивать применение: иначе рендер пересказывает слайды."""
     from lecturelog.domain.slides import SlideCatalogEntry
     from lecturelog.infrastructure.structurize.gemini_structurizer import _slide_context_block
 
@@ -469,14 +469,12 @@ def test_slide_context_block_lists_catalog_terms():
         "первая ЭВМ, программирование переключателями",
         source_concepts=("ENIAC", "перфокарты"),
         transcript_language_terms=("ЭНИАК",),
+        proper_nouns=("ENIAC",),
     )
 
     block = _slide_context_block([entry])
 
     assert "ENIAC" in block
-    assert "перфокарты" in block
-    # Блок обязан ограничивать применение: иначе рендер начнёт переносить в
-    # конспект то, чего в речи не было.
     assert "не добавляй" in block.lower()
 
 
@@ -509,7 +507,7 @@ async def test_v2_render_prompt_carries_slide_spellings(tmp_path, prompts_dir):
                 1,
                 slide,
                 "document",
-                extracted_text="Бинарное дерево поиска. Вершины.",
+                extracted_text="Бинарное дерево поиска. Реализация на Fortran.",
                 native_text_quality="good",
             )
         ],
@@ -518,8 +516,8 @@ async def test_v2_render_prompt_carries_slide_spellings(tmp_path, prompts_dir):
     )
 
     render_prompt = gemini.recorded_calls[-1]["prompt"]
-    assert "Написания со слайдов лекции" in render_prompt
-    assert "Бинарное дерево поиска" in render_prompt
+    assert "Написания имён и терминов из презентации" in render_prompt
+    assert "Fortran" in render_prompt
     # Картинки в рендер по-прежнему не уходят: контекст передаётся текстом.
     assert all(not call["images"] for call in gemini.recorded_calls)
 
@@ -571,3 +569,29 @@ async def test_render_context_covers_unassigned_slides(tmp_path, prompts_dir):
 
     render_prompt = gemini.recorded_calls[-1]["prompt"]
     assert "ENIAC" in render_prompt
+
+
+def test_slide_context_block_lists_only_proper_nouns():
+    """В справочник идут только имена и аббревиатуры.
+
+    Целые формулировки со слайда рендер переносил в конспект как сказанное
+    лектором: словарь из отдельных токенов переносить нечего.
+    """
+    from lecturelog.domain.slides import SlideCatalogEntry
+    from lecturelog.infrastructure.structurize.gemini_structurizer import _slide_context_block
+
+    entry = SlideCatalogEntry(
+        14,
+        "content",
+        "Востребованные компетенции",
+        "владение более чем одним языком программирования",
+        source_concepts=("владение более чем одним языком программирования",),
+        proper_nouns=("ENIAC", "Fortran"),
+    )
+
+    block = _slide_context_block([entry])
+
+    assert "ENIAC" in block
+    assert "Fortran" in block
+    assert "владение более чем одним" not in block
+    assert "Востребованные компетенции" not in block

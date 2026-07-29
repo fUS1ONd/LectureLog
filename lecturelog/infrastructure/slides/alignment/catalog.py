@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Iterable
 
 from lecturelog.domain.slides import (
@@ -38,6 +39,7 @@ def parse_catalog_response(raw: str, expected_slide_nums: Iterable[int]) -> list
             transcript_language_terms=tuple(item.transcript_language_terms),
             visual_summary=item.visual_summary,
             formulas=tuple(item.formulas),
+            proper_nouns=tuple(item.proper_nouns),
         )
         for item in parsed.slides
     ]
@@ -63,6 +65,18 @@ def detect_boilerplate_lines(
     return frozenset(line for line, pages in pages_with_line.items() if pages >= threshold)
 
 
+# Имена собственные в нативном тексте: латиница, аббревиатуры, токены с цифрами
+# и точками (ENIAC, HwProj, SWEBOK, hwproj.ru, C++). Русские имена эвристикой не
+# берём — по заглавной букве их не отличить от первого слова строки.
+_PROPER_NOUN_RE = re.compile(r"[A-Za-z][A-Za-z0-9+#._-]{2,}|[A-ZА-ЯЁ]{3,}")
+
+
+def extract_proper_nouns(text: str, *, limit: int = 40) -> tuple[str, ...]:
+    """Написания имён со страницы — запасной словарь, если каталог деградировал."""
+    found = dict.fromkeys(match.strip("._-") for match in _PROPER_NOUN_RE.findall(text or ""))
+    return tuple(item for item in found if len(item) >= 3)[:limit]
+
+
 def native_text_fallback(
     asset: SlideAsset, *, boilerplate: frozenset[str] = frozenset()
 ) -> SlideCatalogResult:
@@ -82,6 +96,7 @@ def native_text_fallback(
         title=lines[0][:300] if lines else None,
         visible_text="\n".join(lines)[:6000],
         source_concepts=tuple(lines[:12]),
+        proper_nouns=extract_proper_nouns(text),
     )
     return SlideCatalogResult(asset.slide_num, "native_text_fallback", entry)
 

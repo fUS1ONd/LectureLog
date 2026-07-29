@@ -33,3 +33,17 @@ def test_strict_schema_forbids_extra_properties_and_defaults():
     for obj in objects:
         assert obj["additionalProperties"] is False
         assert all("default" not in prop for prop in obj["properties"].values())
+
+
+def test_catalog_schema_requires_proper_nouns():
+    """Имена собственные — отдельное поле: из них строится справочник написаний."""
+    from lecturelog.infrastructure.slides.alignment.schemas import (
+        CatalogBatchResponse,
+        strict_json_schema,
+    )
+
+    schema = strict_json_schema(CatalogBatchResponse)
+    entry = schema["$defs"]["CatalogEntryResponse"]
+
+    assert "proper_nouns" in entry["properties"]
+    assert "proper_nouns" in entry["required"]

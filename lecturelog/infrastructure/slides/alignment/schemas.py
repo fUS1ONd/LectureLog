@@ -38,6 +38,10 @@ class CatalogEntryResponse(BaseModel):
     transcript_language_terms: list[str] = Field(default_factory=list, max_length=40)
     visual_summary: str = Field(default="", max_length=2000)
     formulas: list[str] = Field(default_factory=list, max_length=40)
+    # Имена собственные, аббревиатуры и названия — в том написании, как на
+    # странице. Транскрипт получен распознаванием речи и коверкает их
+    # («Мониак» вместо ENIAC), а рендер по этому списку восстанавливает.
+    proper_nouns: list[str] = Field(default_factory=list, max_length=40)
 
 
 class CatalogBatchResponse(BaseModel):

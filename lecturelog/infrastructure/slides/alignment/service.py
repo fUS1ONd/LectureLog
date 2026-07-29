@@ -165,7 +165,7 @@ class DocumentAlignmentService:
                 and all(_is_supported_image(asset.path) for asset in batch)
             ):
                 expected = [asset.slide_num for asset in batch]
-                prompt = self._prompt("document_slide_catalog_v2.md")
+                prompt = self._prompt("document_slide_catalog_v3.md")
                 prompt += "\nslide_num в порядке изображений: " + json.dumps(expected)
                 images = [asset.path.read_bytes() for asset in batch]
                 # Один повтор с текстом ошибки: срыв схемы иначе молча терял весь batch.

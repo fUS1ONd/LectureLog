@@ -47,6 +47,7 @@ class SlideCatalogEntry:
     transcript_language_terms: tuple[str, ...] = ()
     visual_summary: str = ""
     formulas: tuple[str, ...] = ()
+    proper_nouns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

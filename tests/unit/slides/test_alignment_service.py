@@ -36,7 +36,7 @@ async def test_llm_catalog_and_semantic_verification_are_used(tmp_path):
     image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "document_slide_catalog_v2.md").write_text("catalog")
+    (prompts / "document_slide_catalog_v3.md").write_text("catalog")
     (prompts / "document_slide_semantic_match_v1.md").write_text("semantic")
     llm = ScriptedLlm(
         [
@@ -212,7 +212,7 @@ async def test_navigation_role_requires_semantic_evidence(tmp_path):
     image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "document_slide_catalog_v2.md").write_text("catalog")
+    (prompts / "document_slide_catalog_v3.md").write_text("catalog")
     (prompts / "document_slide_semantic_match_v1.md").write_text("semantic")
     llm = ScriptedLlm(
         [
@@ -266,7 +266,7 @@ async def test_blank_role_remains_unmentioned(tmp_path):
     image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "document_slide_catalog_v2.md").write_text("catalog")
+    (prompts / "document_slide_catalog_v3.md").write_text("catalog")
     llm = ScriptedLlm(
         [
             json.dumps(
@@ -335,7 +335,7 @@ async def test_catalog_does_not_lower_output_ceiling(tmp_path):
     image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "document_slide_catalog_v2.md").write_text("catalog")
+    (prompts / "document_slide_catalog_v3.md").write_text("catalog")
     llm = ScriptedLlm(
         [
             json.dumps(
@@ -368,7 +368,7 @@ async def test_catalog_repairs_invalid_schema_once(tmp_path):
     image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "document_slide_catalog_v2.md").write_text("catalog")
+    (prompts / "document_slide_catalog_v3.md").write_text("catalog")
     broken = json.dumps({"slides": [{"role": "content", "title": "без slide_num"}]})
     valid = json.dumps(
         {
@@ -407,7 +407,7 @@ async def test_catalog_falls_back_after_single_failed_repair(tmp_path):
     image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "document_slide_catalog_v2.md").write_text("catalog")
+    (prompts / "document_slide_catalog_v3.md").write_text("catalog")
     broken = json.dumps({"slides": [{"role": "content", "title": "без slide_num"}]})
     llm = ScriptedLlm([broken, broken])
     service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
@@ -433,7 +433,7 @@ async def test_catalog_and_semantic_calls_use_strict_schema(tmp_path):
     image.write_bytes(b"\x89PNG\r\n\x1a\nimage")
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "document_slide_catalog_v2.md").write_text("catalog")
+    (prompts / "document_slide_catalog_v3.md").write_text("catalog")
     (prompts / "document_slide_semantic_match_v1.md").write_text("semantic")
     llm = ScriptedLlm(
         [
@@ -480,7 +480,7 @@ async def test_align_returns_catalog_for_render_context(tmp_path):
     """Каталог нужен рендеру: в нём имена собственные в правильном написании."""
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "document_slide_catalog_v2.md").write_text("catalog")
+    (prompts / "document_slide_catalog_v3.md").write_text("catalog")
     (prompts / "document_slide_semantic_match_v1.md").write_text("semantic")
     image = tmp_path / "slide.png"
     image.write_bytes(b"\x89PNGfake")
