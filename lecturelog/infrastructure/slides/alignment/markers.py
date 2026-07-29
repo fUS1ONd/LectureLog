@@ -4,6 +4,11 @@ import re
 from dataclasses import dataclass
 
 _MARKER_RE = re.compile(r"<!--\s*slide:\d+\s*-->")
+# Префикс пункта списка любого вида: маркеры "-"/"*"/"+", нумерация произвольным
+# числом с разделителем "." или ")", а также цитата "> ". Литерал "1. " покрывал
+# только первый пункт нумерованного списка — пункты "2.", "3." и далее считались
+# обычными абзацами и годились под якорь маркера слайда.
+_LIST_PREFIX_RE = re.compile(r"^(?:[-*+]\s|\d+[.)]\s|>\s)")
 
 
 @dataclass(frozen=True)
@@ -24,7 +29,7 @@ def parse_markdown_blocks(markdown: str) -> tuple[MarkdownBlock, ...]:
         if stripped.startswith("```") or stripped.startswith("~~~"):
             in_fence = not in_fence
             atomic = True
-        if stripped.startswith(("- ", "* ", "+ ", "> ", "1. ")):
+        if _LIST_PREFIX_RE.match(stripped):
             atomic = True
         if not line.strip() and not in_fence:
             if current:
