@@ -1175,6 +1175,211 @@ git commit -m "fix(slides): повышенный вердикт судьи по�
 
 ---
 
+---
+
+## Задачи 15–19: регрессии от задач 2, 3, 12, 14 и решение из очереди
+
+**Порядок исполнения:** после задачи 14 и **до задачи 4**. Три из четырёх дефектов внесены задачами этого же плана, поэтому чинятся прежде, чем на них наслоится слияние режимов.
+
+Красные тесты лежат в `tests/unit/slides/test_alignment_edge_cases_round2.py` — RED-фаза готова, менять тесты нельзя. Нашёл их отдельный проход охоты на краевые случаи.
+
+---
+
+### Task 15: Коллизия доказательств считается по парам, а не по слайдам
+
+**Files:**
+- Modify: `lecturelog/infrastructure/slides/alignment/service.py`, метод `_downgrade_evidence_collisions`
+- Test: `tests/unit/slides/test_alignment_edge_cases_round2.py::test_коллизия_понижает_несвязанный_слайд_потому_что_связь_бывает_только_попарной`
+
+**Interfaces:**
+- Consumes: `SlideRelation(slide_num, canonical_slide_num, group_id, kind)` из `domain/slides.py:66-71`.
+- Produces: слайд исключается из понижения только относительно тех слайдов, с которыми он связан. Несвязанный сосед по блоку понижается независимо от того, есть ли у соседей связи между собой.
+
+Первопричина (регрессия задачи 3): множество `related` собирается по номерам слайдов, поэтому слайд, связанный хоть с одной страницей, вообще не попадает в карту коллизий. В результате даже полностью несвязанный слайд, делящий блок с такой группой, остаётся `verified`. Связь по смыслу попарная (`progressive_build` и `exact_duplicate` соединяют конкретные страницы), а код трактует её как индульгенцию для слайда целиком.
+
+- [ ] **Step 1: Убедиться, что тест падает**
+
+Run: `.venv/bin/python -m pytest "tests/unit/slides/test_alignment_edge_cases_round2.py::test_коллизия_понижает_несвязанный_слайд_потому_что_связь_бывает_только_попарной" -v`
+Expected: FAIL — слайд 9 остался `verified`.
+
+- [ ] **Step 2: Реализовать**
+
+Строить отношение связанности как множество пар (или как отображение слайд → множество связанных с ним слайдов, замкнутое по `group_id`). На каждом доказательном блоке понижать те слайды, для которых на этом блоке есть хотя бы один **несвязанный** с ними сосед. Пара связанных слайдов, оказавшаяся на блоке одна, не понижается.
+
+- [ ] **Step 3: Прогнать тесты**
+
+Run: `.venv/bin/python -m pytest tests/unit -q`
+Expected: целевой тест PASS; `test_evidence_collision_downgrades_unrelated_verified_assignments` и три теста коллизий из задачи 3 (`tests/unit/slides/test_alignment_service.py`) остаются PASS.
+
+- [ ] **Step 4: Коммит**
+
+```bash
+git add lecturelog/infrastructure/slides/alignment/service.py
+git commit -m "fix(slides): коллизия доказательств считается по парам связей"
+```
+
+---
+
+### Task 16: Пустой `visible_text` не обнуляет страницу, описанную другими полями
+
+**Files:**
+- Modify: `lecturelog/infrastructure/slides/alignment/service.py`, функция `normalize_empty_entry`
+- Test: `tests/unit/slides/test_alignment_edge_cases_round2.py::test_страница_без_видимого_текста_но_с_концептами_остаётся_привязываемой`
+
+**Interfaces:**
+- Consumes: `SlideCatalogEntry` (`domain/slides.py:41-50`) — поля `title`, `visible_text`, `source_concepts`, `transcript_language_terms`, `formulas`, `visual_summary`, `proper_nouns`.
+- Produces: роль `blank` присваивается только когда пусты **все** содержательные поля записи.
+
+Первопричина (регрессия задачи 2): `normalize_empty_entry` смотрит только `title` и `visible_text`. Но retrieval и grounding строят запрос ещё из `source_concepts`, `transcript_language_terms` и `formulas`. Страница с одной фотографией или схемой закономерно имеет пустой `visible_text` (промпт `document_slide_catalog_v3.md` описывает это поле как текст страницы), при заполненных концептах и именах собственных. Такая страница получает `blank`, кандидатов ноль, второй вызов модели не делается — и она молча уходит в приложение.
+
+Решение владельца продукта «верить модели» этим не нарушается: модель сказала `role="content"` и описала содержание — просто в других полях.
+
+- [ ] **Step 1: Убедиться, что тест падает**
+
+Run: `.venv/bin/python -m pytest "tests/unit/slides/test_alignment_edge_cases_round2.py::test_страница_без_видимого_текста_но_с_концептами_остаётся_привязываемой" -v`
+Expected: FAIL — роль стала `blank` при заполненных `source_concepts`.
+
+- [ ] **Step 2: Реализовать**
+
+Считать запись пустой, только если пусты все содержательные поля. Перечисли их одним явным списком в функции, чтобы при добавлении поля в модель было видно, где его учесть.
+
+- [ ] **Step 3: Прогнать тесты**
+
+Run: `.venv/bin/python -m pytest tests/unit -q`
+Expected: целевой тест PASS; оба теста задачи 2 в `test_alignment_service.py` остаются PASS.
+
+- [ ] **Step 4: Коммит**
+
+```bash
+git add lecturelog/infrastructure/slides/alignment/service.py
+git commit -m "fix(slides): blank только когда пусты все поля записи"
+```
+
+---
+
+### Task 17: Восстановленные строки не служат доказательством
+
+**Files:**
+- Modify: `lecturelog/infrastructure/slides/alignment/catalog.py`
+- Test: `tests/unit/slides/test_alignment_edge_cases_round2.py::test_страница_только_с_колонтитулом_не_привязывается_по_колонтитулу`
+
+**Interfaces:**
+- Consumes: `detect_boilerplate_lines(...)`, `native_text_fallback(asset, boilerplate=...)`.
+- Produces: страница, все строки которой признаны колонтитулом, сохраняет каталожную запись (решение задачи 12 в силе), но её `source_concepts` и `visible_text` не наполняются колонтитулом, поэтому grounding не может построить по нему claim.
+
+Первопричина (регрессия задачи 12): при полном обнулении страницы берётся нефильтрованный текст, и колонтитул попадает не только в `title` (что принято сознательно), но и в `source_concepts`/`visible_text`. Оттуда grounding строит доказательство — и страница-разделитель, на которой напечатан только колонтитул, получает `verified` с `semantic_explicit` на реплике вида «курс …, лекция вторая». Это противоречит докстрингу самой `detect_boilerplate_lines`: «в качестве доказательства она бесполезна: совпадает с любой репликой, где лектор произносит название курса».
+
+Второе следствие, которое обязательно устранить: такая привязка засчитывается deck guard как подтверждение родства колоды с лекцией, то есть посторонняя колода способна пройти guard на одних колонтитулах.
+
+- [ ] **Step 1: Убедиться, что тест падает**
+
+Run: `.venv/bin/python -m pytest "tests/unit/slides/test_alignment_edge_cases_round2.py::test_страница_только_с_колонтитулом_не_привязывается_по_колонтитулу" -v`
+Expected: FAIL — страница привязана по колонтитулу с `verified`.
+
+- [ ] **Step 2: Реализовать**
+
+Разделить два назначения текста: `title` для человека (там колонтитул допустим) и содержательные поля для матчинга (там его быть не должно). Минимальная форма — при откате оставлять восстановленные строки только в `title`, а `source_concepts` и `visible_text` не наполнять.
+
+- [ ] **Step 3: Прогнать тесты**
+
+Run: `.venv/bin/python -m pytest tests/unit -q`
+Expected: целевой тест PASS; тест задачи 12 (`test_page_keeps_catalog_entry_when_boilerplate_filter_would_erase_all_its_lines`) остаётся PASS — запись по-прежнему существует; шесть тестов `test_catalog.py` без падений.
+
+- [ ] **Step 4: Коммит**
+
+```bash
+git add lecturelog/infrastructure/slides/alignment/catalog.py
+git commit -m "fix(slides): колонтитул не становится доказательством привязки"
+```
+
+---
+
+### Task 18: Судья подтверждает раздел, а не только силу вердикта
+
+**Files:**
+- Modify: `lecturelog/infrastructure/slides/alignment/service.py`, метод `_verify`
+- Test: `tests/unit/slides/test_alignment_edge_cases_round2.py::test_судья_назвавший_другой_раздел_не_подтверждает_strong_вердикт`
+
+**Interfaces:**
+- Consumes: результат `parse_semantic_match(raw)` — поля `global_section_id` и `semantic_tier`.
+- Produces: результат второго прохода принимается только если он указал **тот же** `global_section_id`, что и первый. Иначе подтверждения нет.
+
+Первопричина: `_verify` заявляет в комментарии «strong принимается только после независимой второй проверки», но согласие проходов не сверяет — проверяется лишь сила вердикта, а `strong_judge_agrees=True` передаётся до всякой проверки. В результате слайд встаёт в разделе, который первый проход не выбирал, с той же уверенностью, что и дважды подтверждённое совпадение.
+
+- [ ] **Step 1: Убедиться, что тест падает**
+
+Run: `.venv/bin/python -m pytest "tests/unit/slides/test_alignment_edge_cases_round2.py::test_судья_назвавший_другой_раздел_не_подтверждает_strong_вердикт" -v`
+Expected: FAIL — принят раздел, названный только одним проходом.
+
+- [ ] **Step 2: Реализовать**
+
+Сверять `global_section_id` двух проходов. При расхождении подтверждения нет — дальше по существующей логике отказа.
+
+- [ ] **Step 3: Прогнать тесты**
+
+Run: `.venv/bin/python -m pytest tests/unit -q`
+Expected: целевой тест PASS; тесты задач 13 и 14 в `test_alignment_edge_cases.py` остаются PASS — в них оба прохода называют один и тот же раздел.
+
+- [ ] **Step 4: Коммит**
+
+```bash
+git add lecturelog/infrastructure/slides/alignment/service.py
+git commit -m "fix(slides): подтверждением считается только тот же раздел"
+```
+
+---
+
+### Task 19: Лексическое доказательство без модели не даёт `explicit`
+
+Решение владельца продукта по записи из очереди вопросов: чисто лексическое совпадение никогда не выдаёт `explicit`, его потолок — `strong`. Два пути (`_lexical_ground` и `_global_recovery`) приводятся к одному правилу.
+
+**Files:**
+- Modify: `lecturelog/infrastructure/slides/alignment/service.py`, метод `_lexical_ground`
+- Test: `tests/unit/slides/test_alignment_edge_cases_round2.py` — добавить новый тест (RED-фазы для него ещё нет)
+- Modify: `OPEN-QUESTIONS.md` — удалить запись после реализации
+
+**Interfaces:**
+- Consumes: `SlideCandidate.semantic_tier`.
+- Produces: `_lexical_ground` возвращает кандидата с `semantic_tier="strong"`; путь без участия модели больше не приводит к `anchor_confidence="verified"`.
+
+- [ ] **Step 1: Написать падающий тест**
+
+```python
+@pytest.mark.asyncio
+async def test_лексическое_совпадение_без_модели_не_даёт_explicit(tmp_path: Path) -> None:
+    """Модель ничего не подтверждала: потолок такого доказательства — strong.
+
+    Иначе страница с неподтверждённым каталогом получает inline-картинку с
+    уверенностью verified на пересечении двух общеупотребительных слов, и
+    anchoring пропускает её мимо проверки специфичности абзаца.
+    """
+```
+
+Тело теста собрать по образцу соседних тестов файла: сервис без LLM (или с `catalog_verified=False`), проверить, что полученный кандидат имеет `semantic_tier == "strong"`, а не `"explicit"`.
+
+- [ ] **Step 2: Убедиться, что тест падает**
+
+Run: `.venv/bin/python -m pytest tests/unit/slides/test_alignment_edge_cases_round2.py -k лексическое -v`
+Expected: FAIL — tier равен `explicit`.
+
+- [ ] **Step 3: Реализовать**
+
+В `_lexical_ground` выставлять `semantic_tier="strong"`.
+
+- [ ] **Step 4: Прогнать тесты**
+
+Run: `.venv/bin/python -m pytest tests/unit -q`
+Expected: целевой тест PASS. Тест `test_verified_keeps_inline_on_weak_evidence` может упасть: он фиксировал прежнее поведение (лексический путь даёт `verified`). Разобраться, что он утверждает, и переписать под новое правило, объяснив это в отчёте. Ослаблять его нельзя — если он проверяет что-то ещё помимо tier, эта часть должна остаться.
+
+- [ ] **Step 5: Удалить запись из `OPEN-QUESTIONS.md` и закоммитить**
+
+```bash
+git add lecturelog/infrastructure/slides/alignment/service.py tests/unit/slides/test_alignment_edge_cases_round2.py OPEN-QUESTIONS.md
+git commit -m "fix(slides): лексический путь не выдаёт explicit"
+```
+
+---
+
 ## Самопроверка плана
 
 **Покрытие спеки.** Все разделы спеки имеют задачу: OPEN-QUESTIONS → задачи 1–3; характеризационные тесты → 4; единая сегментация и маркеры → 5; окно в retrieval → 6; каталог кадров, доменный инвариант, deck guard мимо видео → 7; фолбэк по времени → 8; пайплайн и удаление ручного размещения → 9; гейт → 10. Не-цели (задача 11 плана v2, улучшение качества видео) задач не имеют сознательно.
