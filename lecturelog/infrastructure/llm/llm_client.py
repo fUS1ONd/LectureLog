@@ -224,7 +224,22 @@ class LlmClient:
                 await asyncio.sleep(_NETWORK_BACKOFF_S * (attempt + 1))
                 continue
 
-            choice = resp.choices[0]
+            # Провайдер может отвалиться до начала генерации: тогда OpenRouter
+            # отдаёт 200 с телом из одной ошибки, а `choices` приходит пустым или
+            # отсутствует вовсе. Это отказ, а не ответ, и обращение к choices[0]
+            # роняло всю задачу с TypeError.
+            choices = getattr(resp, "choices", None)
+            if not choices:
+                resp_error = getattr(resp, "error", None)
+                last_error = RuntimeError(
+                    f"ответ модели {model} пришёл без choices (error={resp_error})"
+                )
+                last_reason = "ответы апстрима без choices"
+                logger.warning("%s; пробуем следующую модель", last_error)
+                await self._cooldown.mark_rate_limited(model, _UPSTREAM_ERROR_COOLDOWN_S)
+                continue
+
+            choice = choices[0]
             # Апстрим может оборвать генерацию посреди потока: HTTP-ошибки нет,
             # приходит 200 с частичным контентом, нулевым usage и признаком отказа.
             # Так выглядят RECITATION-фильтр Gemini и 503 provider_overloaded.

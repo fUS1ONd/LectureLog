@@ -89,6 +89,23 @@ def _truncated_resp(text, *, native_finish=None, choice_error=None):
     return R()
 
 
+def _no_choices_resp(*, choices=None, error=None):
+    """Ответ 200 без единого choice: тело содержит только ошибку провайдера.
+
+    Так OpenRouter отвечает, когда провайдер отвалился до начала генерации:
+    HTTP-ошибки нет, `choices` приходит пустым или отсутствует вовсе.
+    """
+
+    class R:
+        pass
+
+    resp = R()
+    resp.choices = choices
+    resp.error = error
+    resp.usage = None
+    return resp
+
+
 def _rate_limit_error(raw_metadata: str) -> openai.RateLimitError:
     body = {
         "error": {
@@ -469,6 +486,55 @@ async def test_provider_overloaded_truncation_is_retried():
 
     assert out == "полный ответ"
     assert fake.chat.completions.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_response_without_choices_falls_back_to_next_model():
+    """Тело без `choices` — отказ провайдера, а не ответ: нужен фолбэк, а не падение."""
+    cooldown = SpyModelCooldown()
+    fake = FakeAsyncOpenAI(
+        [
+            _no_choices_resp(
+                error={
+                    "code": 503,
+                    "message": "JSON error injected into SSE stream",
+                    "metadata": {"error_type": "provider_overloaded"},
+                }
+            ),
+            _resp("полный ответ"),
+        ]
+    )
+    client = LlmClient(fake, cooldown)
+
+    out = await client.call("q", models=["m1", "m2"])
+
+    assert out == "полный ответ"
+    assert [item["model"] for item in fake.chat.completions.kwargs_history] == ["m1", "m2"]
+    assert [model for model, _ttl in cooldown.marked] == ["m1"]
+
+
+@pytest.mark.asyncio
+async def test_empty_choices_list_falls_back_to_next_model():
+    """Пустой список choices — та же ситуация, что и полное отсутствие поля."""
+    fake = FakeAsyncOpenAI([_no_choices_resp(choices=[]), _resp("полный ответ")])
+    client = LlmClient(fake, SpyModelCooldown())
+
+    out = await client.call("q", models=["m1", "m2"])
+
+    assert out == "полный ответ"
+    assert fake.chat.completions.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_response_without_choices_exhausts_retries_with_clear_message():
+    """Когда фолбэк не помог, наверх идёт понятная ошибка, а не TypeError."""
+    fake = FakeAsyncOpenAI([_no_choices_resp(error={"code": 503}) for _ in range(3)])
+    client = LlmClient(fake, ModelCooldown())
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await client.call("q", models=["m1"], retries=3)
+
+    assert "без choices" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
