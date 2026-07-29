@@ -86,12 +86,28 @@ def native_text_fallback(
     all_lines = [line.strip() for line in text.splitlines() if line.strip()]
     lines = [line for line in all_lines if line not in boilerplate]
     if not lines:
-        # Все строки страницы сочтены колонтитулом (например, промежуточный шаг
-        # progressive build, где каждая строка повторяется на последующих слайдах).
-        # Отбрасывать страницу целиком нельзя — она всё ещё содержит собственный
-        # текст, просто он совпал с текстом других страниц. Берём исходные строки
-        # без фильтрации, чтобы не потерять каталожную запись.
-        lines = all_lines
+        # Все строки страницы сочтены колонтитулом (например, страница-разделитель,
+        # на которой напечатан только заголовок колоды, или промежуточный шаг
+        # progressive build, чьи строки повторяются на последующих слайдах).
+        #
+        # Каталожную запись страница сохраняет: без неё она молча выпадает из
+        # конспекта (решение задачи 12). Но восстановленные строки не годятся в
+        # доказательство привязки — по определению самой detect_boilerplate_lines
+        # они совпадают с любой репликой, где лектор произносит название курса.
+        # Поэтому наполняем только title (человеку он говорит, что это за
+        # страница) и proper_nouns (справочник написаний для рендера): ни то, ни
+        # другое доказательством не станет, потому что роль blank выводит
+        # страницу из матчинга целиком. Оставить строки в title при роли content
+        # недостаточно: retrieval строит по title запрос, а grounding — claim.
+        entry = SlideCatalogEntry(
+            slide_num=asset.slide_num,
+            role="blank",
+            title=all_lines[0][:300],
+            visible_text="",
+            source_concepts=(),
+            proper_nouns=extract_proper_nouns(text),
+        )
+        return SlideCatalogResult(asset.slide_num, "native_text_fallback", entry)
     entry = SlideCatalogEntry(
         slide_num=asset.slide_num,
         role="content",
