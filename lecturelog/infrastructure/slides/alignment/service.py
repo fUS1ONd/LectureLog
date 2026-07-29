@@ -57,13 +57,41 @@ def _tier_at_least(tier: str, threshold: str) -> bool:
     return _SEMANTIC_TIER_STRENGTH.index(tier) >= _SEMANTIC_TIER_STRENGTH.index(threshold)
 
 
+def _field_has_content(value: object) -> bool:
+    """Поле записи описывает страницу: непробельная строка или непустой кортеж строк."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, tuple):
+        return any(_field_has_content(item) for item in value)
+    return bool(value)
+
+
 def normalize_empty_entry(entry: SlideCatalogEntry) -> SlideCatalogEntry:
     """Пустую запись модели считаем утверждением «на странице ничего нет».
 
     Роль blank уводит слайд в приложение сразу, вместо того чтобы держать его
     в content и безрезультатно искать доказательства по пустому payload.
+
+    Пустой `visible_text` сам по себе страницу не обнуляет: у страницы с одной
+    фотографией или схемой текста закономерно нет, а её содержание модель
+    описывает в `source_concepts`, `transcript_language_terms`, `formulas` и
+    `visual_summary` — по ним retrieval и grounding работают ровно так же.
+    Поэтому blank ставится только когда пусты все содержательные поля.
     """
-    if entry.title or entry.visible_text.strip():
+    # Перечень содержательных полей задан здесь одним явным списком: при
+    # добавлении поля в SlideCatalogEntry видно, где его нужно учесть.
+    content_fields: tuple[object, ...] = (
+        entry.title,
+        entry.visible_text,
+        entry.source_concepts,
+        entry.transcript_language_terms,
+        entry.visual_summary,
+        entry.formulas,
+        entry.proper_nouns,
+    )
+    if any(_field_has_content(value) for value in content_fields):
         return entry
     return replace(entry, role="blank")
 
