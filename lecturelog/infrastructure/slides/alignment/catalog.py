@@ -83,13 +83,15 @@ def native_text_fallback(
     text = (asset.extracted_text or "").strip()
     if not text:
         return SlideCatalogResult(asset.slide_num, "unresolved", None)
-    lines = [
-        line.strip()
-        for line in text.splitlines()
-        if line.strip() and line.strip() not in boilerplate
-    ]
+    all_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    lines = [line for line in all_lines if line not in boilerplate]
     if not lines:
-        return SlideCatalogResult(asset.slide_num, "unresolved", None)
+        # Все строки страницы сочтены колонтитулом (например, промежуточный шаг
+        # progressive build, где каждая строка повторяется на последующих слайдах).
+        # Отбрасывать страницу целиком нельзя — она всё ещё содержит собственный
+        # текст, просто он совпал с текстом других страниц. Берём исходные строки
+        # без фильтрации, чтобы не потерять каталожную запись.
+        lines = all_lines
     entry = SlideCatalogEntry(
         slide_num=asset.slide_num,
         role="content",
