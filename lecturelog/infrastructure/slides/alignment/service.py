@@ -31,7 +31,10 @@ from lecturelog.infrastructure.slides.alignment.schemas import (
     SemanticMatchResponse,
     strict_json_schema,
 )
-from lecturelog.infrastructure.slides.alignment.semantic import validate_semantic_response
+from lecturelog.infrastructure.slides.alignment.semantic import (
+    parse_semantic_match,
+    validate_semantic_response,
+)
 from lecturelog.infrastructure.slides.alignment.sequence import AlignmentWeights, align_sequence
 from lecturelog.infrastructure.srt import parse_srt_blocks, parse_srt_time
 
@@ -264,8 +267,10 @@ class DocumentAlignmentService:
             )
             # Strong evidence is accepted only after an independent second pass.
             if first is None:
-                response = json.loads(raw)
-                if response.get("semantic_tier") != "strong":
+                # Tier читаем тем же разбором, что и валидатор (включая форму
+                # [{...}]), а не отдельным json.loads(raw).get(...): на массиве
+                # это падало в AttributeError, который глотал общий except.
+                if parse_semantic_match(raw).semantic_tier != "strong":
                     return self._global_recovery(entry, sections, blocks)
                 second_raw = await self._llm.call(
                     prompt=prompt + "\nНезависимо перепроверь strong verdict.",

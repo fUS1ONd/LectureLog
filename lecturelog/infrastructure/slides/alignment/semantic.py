@@ -7,6 +7,22 @@ from lecturelog.infrastructure.slides.alignment.grounding import evidence_matche
 from lecturelog.infrastructure.slides.alignment.schemas import SemanticMatchResponse
 
 
+def parse_semantic_match(raw: str) -> SemanticMatchResponse:
+    """Разобрать сырой ответ модели в единственном месте разбора транспортной формы.
+
+    Модель может ответить как одним объектом, так и поддержанной формой —
+    массивом из одного объекта. Любой код, которому нужен только
+    `semantic_tier` (например, решение — звать ли независимого судью), должен
+    использовать эту функцию, а не парсить `raw` заново.
+    """
+    payload = json.loads(raw)
+    if isinstance(payload, list):
+        if len(payload) != 1:
+            raise ValueError("semantic response array должен содержать ровно один объект")
+        payload = payload[0]
+    return SemanticMatchResponse.model_validate(payload)
+
+
 def validate_semantic_response(
     raw: str,
     *,
@@ -15,12 +31,7 @@ def validate_semantic_response(
     blocks: list[TranscriptBlock],
     strong_judge_agrees: bool = False,
 ) -> SlideCandidate | None:
-    payload = json.loads(raw)
-    if isinstance(payload, list):
-        if len(payload) != 1:
-            raise ValueError("semantic response array должен содержать ровно один объект")
-        payload = payload[0]
-    response = SemanticMatchResponse.model_validate(payload)
+    response = parse_semantic_match(raw)
     if response.slide_num != entry.slide_num:
         raise ValueError("semantic response ссылается на другой slide_num")
     candidate = next(
