@@ -110,6 +110,33 @@ async def test_deck_guard_marks_unrelated_deck(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_deck_guard_returns_empty_catalog(tmp_path):
+    """Посторонняя колода не должна снабжать рендер написаниями своих имён.
+
+    Иначе имена с чужих слайдов подставляются в конспект и выглядят как
+    уверенное исправление опечатки распознавания речи.
+    """
+    image = tmp_path / "slide.png"
+    image.write_bytes(b"not-a-real-image")
+    service = DocumentAlignmentService()
+    result = await service.align(
+        assets=[
+            SlideAsset(
+                1,
+                image,
+                "document",
+                extracted_text="Совершенно посторонний текст про кулинарию",
+                native_text_quality="good",
+            )
+        ],
+        section_layout=_layout(),
+        srt_content=_srt(),
+    )
+    assert all(item.match_status == "deck_mismatch" for item in result.assignments)
+    assert result.catalog == {}
+
+
+@pytest.mark.asyncio
 async def test_invalid_section_timeline_fails_closed(tmp_path):
     image = tmp_path / "slide.png"
     image.write_bytes(b"x")
@@ -507,7 +534,7 @@ async def test_align_returns_catalog_for_render_context(tmp_path):
                     "slide_num": 1,
                     "global_section_id": 0,
                     "evidence_block_ids": [1],
-                    "evidence_quote": "Обсуждаем бинарное дерево поиска",
+                    "evidence_quote": "Обсуждаем ENIAC подробно",
                     "semantic_tier": "explicit",
                 }
             ),
@@ -515,11 +542,14 @@ async def test_align_returns_catalog_for_render_context(tmp_path):
     )
     service = DocumentAlignmentService(llm=llm, models=["m"], prompts_dir=prompts, effort="low")
 
+    # Речь подтверждает слайд явной цитатой, поэтому deck guard не срабатывает
+    # и каталог не обнуляется — иначе title="ENIAC" ниже не был бы виден рендеру.
     result = await service.align(
         assets=[SlideAsset(1, image, "document", extracted_text="", native_text_quality="none")],
         section_layout=_layout(),
-        srt_content=_srt(),
+        srt_content=_srt("Обсуждаем ENIAC подробно"),
     )
 
+    assert result.assignments[0].match_status == "discussed"
     assert result.catalog[1].title == "ENIAC"
     assert result.assignments[0].slide_num == 1

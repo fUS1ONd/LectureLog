@@ -130,6 +130,9 @@ class DocumentAlignmentService:
             int(content_count * self._tuning.deck_min_supported_ratio + 0.999),
         )
         if content_count and supported < required:
+            # Колода признана посторонней: её написания не должны попадать в
+            # справочник рендера, иначе чужие имена собственные подставляются
+            # в конспект как исправление опечатки ASR.
             return AlignmentResult(
                 tuple(
                     item
@@ -146,7 +149,7 @@ class DocumentAlignmentService:
                     )
                     for item in assignments
                 ),
-                entries,
+                {},
             )
         return AlignmentResult(assignments, entries)
 
