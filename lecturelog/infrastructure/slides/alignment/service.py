@@ -402,23 +402,37 @@ class DocumentAlignmentService:
         # Пара слайдов на одном доказательстве законна только если это одна и
         # та же страница в двух видах: progressive build или дубль. Любая другая
         # пара означает, что как минимум один слайд не про эту реплику.
-        related = {
-            slide_num
-            for relation in relations
-            for slide_num in (relation.slide_num, relation.canonical_slide_num)
-        }
+        #
+        # Связь попарная, поэтому и считается по парам: связь с одной страницей
+        # не оправдывает коллизию с любой другой. Внутри group_id связь замкнута
+        # (три одинаковых страницы попадают в одну группу дублей), поэтому
+        # участники группы связаны друг с другом все со всеми.
+        groups: dict[str, set[int]] = {}
+        for relation in relations:
+            groups.setdefault(relation.group_id, set()).update(
+                (relation.slide_num, relation.canonical_slide_num)
+            )
+        related: dict[int, set[int]] = {}
+        for members in groups.values():
+            for slide_num in members:
+                related.setdefault(slide_num, set()).update(members - {slide_num})
         by_evidence: dict[int, list[int]] = {}
         for item in assignments:
             if item.match_status != "discussed":
                 continue
             for block_id in item.evidence_block_ids:
-                if item.slide_num not in related:
-                    by_evidence.setdefault(block_id, []).append(item.slide_num)
+                by_evidence.setdefault(block_id, []).append(item.slide_num)
         conflicted = {
             slide_num
             for slide_nums in by_evidence.values()
-            if len(slide_nums) > 1
             for slide_num in slide_nums
+            # Понижаем слайд, если на этом блоке есть хотя бы один сосед, с
+            # которым он не связан. Связанная пара, оказавшаяся на блоке одна,
+            # остаётся verified.
+            if any(
+                other != slide_num and other not in related.get(slide_num, frozenset())
+                for other in slide_nums
+            )
         }
         return tuple(
             replace(
