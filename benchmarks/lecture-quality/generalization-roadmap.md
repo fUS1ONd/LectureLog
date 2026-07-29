@@ -51,6 +51,31 @@ previous reports or labels before producing the candidate result.
 Target size: 4–6 lectures. Any holdout lecture opened for detailed diagnosis is retired
 to development and replaced.
 
+### Current state (2026-07-29)
+
+| Lecture | Split | Status |
+| --- | --- | --- |
+| `2026-02-12` | development | 9 runs (A–I), judged 7 times, inspected slide by slide |
+| `2026-02-26` | development | run J judged once (`2026-07-29-judge-j-02-26.md`) |
+| `2026-03-12` | development (was validation) | run K judged once as the first unseen validation lecture (`2026-07-29-judge-k-03-12.md`); the report has been read and its per-slide failures are cited in `docs/progress/2026-07-27-matcher-model-experiments.md` |
+
+Consequences under the rules above:
+
+- step 7 of the execution sequence is done; `2026-03-12` is no longer unseen and must not
+  be presented as validation evidence for any later revision;
+- validation is currently **empty** and must be refilled before the next matcher
+  revision is accepted — at minimum one new lecture, per the target of 6–8;
+- the holdout is still not assembled, so the release gates cannot be applied yet;
+- the coverage matrix is served by three sequential single-lecturer decks, so most
+  behaviour classes still have zero or one example. Preferred additions: another
+  lecturer, a mostly visual deck, and a deck whose language differs from the speech.
+
+Aggregate over the three judged lectures (macro-average, equal weight per lecture):
+discussed recall 92.0%, acceptable topic accuracy 88.1%, best-context hit 66.3%,
+wrong-topic rate 11.9%, high-confidence error rate 13.0%, verified precision 100%
+(26/26). This is a snapshot, not a passed gate: no revision has been evaluated against
+unseen data since `2026-03-12` was retired.
+
 ## Coverage matrix
 
 Select lectures by matcher behaviour, not only by academic subject. The benchmark should
