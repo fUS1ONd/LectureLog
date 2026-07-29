@@ -77,13 +77,13 @@ def extract_srt_fragment(srt: str, start: str, end: str) -> str:
         if block.end_s >= start_sec and block.start_s <= end_sec:
             result.append(
                 f"{block.block_id}\n"
-                f"{_format_srt_seconds(block.start_s)} --> {_format_srt_seconds(block.end_s)}\n"
+                f"{format_srt_seconds(block.start_s)} --> {format_srt_seconds(block.end_s)}\n"
                 f"{block.text}"
             )
     return "\n\n".join(result)
 
 
-def _format_srt_seconds(value: float) -> str:
+def format_srt_seconds(value: float) -> str:
     milliseconds = round(value * 1000)
     hours, rest = divmod(milliseconds, 3_600_000)
     minutes, rest = divmod(rest, 60_000)

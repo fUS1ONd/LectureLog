@@ -299,6 +299,66 @@ async def test_structurize_normalizes_srt_timecodes_with_milliseconds(tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_structurize_repairs_inverted_section_range(tmp_path, prompts_dir):
+    """Сплиттер иногда выдаёт секцию с end <= start.
+
+    Такая шкала роняла ffmpeg («-to value smaller than -ss») уже после того, как
+    потрачены транскрипция и все LLM-стадии, и заодно обнуляла выравнивание всей
+    колоды. Границу чиним по соседям: конец битой секции — начало следующей.
+    """
+    srt = tmp_path / "t.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:10:00,000\nтекст\n", encoding="utf-8")
+
+    topics_json = json.dumps([{"title": "Тема 1", "start": "00:00:00", "end": "00:10:00"}])
+    sections_json = json.dumps(
+        [
+            {"title": "Подтема 1", "start": "00:00:00", "end": "00:04:00"},
+            {"title": "Подтема 2", "start": "00:04:00", "end": "00:03:00"},
+            {"title": "Подтема 3", "start": "00:07:00", "end": "00:10:00"},
+        ]
+    )
+    gemini = ScriptedGemini([topics_json, sections_json, "к1", "к2", "к3"])
+
+    structurizer = _make_structurizer(gemini, prompts_dir)
+    topics = await structurizer.structurize(
+        srt_path=srt, slide_images=[], output_dir=tmp_path / "out"
+    )
+
+    sections = topics[0].sections
+    assert [(s.start, s.end) for s in sections] == [
+        ("00:00:00", "00:04:00"),
+        ("00:04:00", "00:07:00"),
+        ("00:07:00", "00:10:00"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_structurize_repairs_inverted_range_in_last_section(tmp_path, prompts_dir):
+    """У последней секции соседа справа нет — границу берём из конца транскрипта."""
+    srt = tmp_path / "t.srt"
+    srt.write_text("1\n00:00:00,000 --> 00:10:00,000\nтекст\n", encoding="utf-8")
+
+    topics_json = json.dumps([{"title": "Тема 1", "start": "00:00:00", "end": "00:10:00"}])
+    sections_json = json.dumps(
+        [
+            {"title": "Подтема 1", "start": "00:00:00", "end": "00:06:00"},
+            {"title": "Подтема 2", "start": "00:06:00", "end": "00:06:00"},
+        ]
+    )
+    gemini = ScriptedGemini([topics_json, sections_json, "к1", "к2"])
+
+    structurizer = _make_structurizer(gemini, prompts_dir)
+    topics = await structurizer.structurize(
+        srt_path=srt, slide_images=[], output_dir=tmp_path / "out"
+    )
+
+    assert [(s.start, s.end) for s in topics[0].sections] == [
+        ("00:00:00", "00:06:00"),
+        ("00:06:00", "00:10:00"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_structurize_subsplit_fallback_on_bad_json(tmp_path, prompts_dir):
     srt = tmp_path / "t.srt"
     srt.write_text("1\n00:00:00,000 --> 00:05:00,000\nтекст\n", encoding="utf-8")

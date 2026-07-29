@@ -25,11 +25,61 @@ from lecturelog.infrastructure.slides.alignment.service import (
     AlignmentTuning,
     DocumentAlignmentService,
 )
-from lecturelog.infrastructure.srt import extract_srt_fragment, format_time
+from lecturelog.infrastructure.srt import (
+    extract_srt_fragment,
+    format_srt_seconds,
+    format_time,
+    parse_srt_blocks,
+    parse_srt_time,
+)
 from lecturelog.infrastructure.structurize.slide_backfill import backfill_missing_slides
 from lecturelog.infrastructure.structurize.slide_mapping import normalize_slide_mapping
 
 logger = logging.getLogger(__name__)
+
+
+def _repair_section_timeline(
+    topics_sections: list[list[dict[str, Any]]], srt_content: str
+) -> None:
+    """Чинит секции, у которых сплиттер выдал end <= start.
+
+    Битая граница обходится дорого: ffmpeg падает на нарезке («-to value smaller
+    than -ss») уже после того, как потрачены транскрипция и все LLM-стадии, а
+    выравнивание слайдов отбрасывает всю колоду разом (fail-closed по
+    «invalid section timeline»). Чиним по соседям — конец битой секции берём из
+    начала следующей, а для последней секции из конца транскрипта, — потому что
+    содержание секции при этом уже отрендерено и терять его незачем.
+    """
+
+    flat = [section for sections in topics_sections for section in sections]
+    if not flat:
+        return
+
+    transcript_end = max((block.end_s for block in parse_srt_blocks(srt_content)), default=0.0)
+    for index, section in enumerate(flat):
+        start = parse_srt_time(str(section["start"]))
+        end = parse_srt_time(str(section["end"]))
+        if end > start:
+            continue
+
+        repaired = next(
+            (
+                candidate
+                for candidate in (
+                    *(parse_srt_time(str(item["start"])) for item in flat[index + 1 :]),
+                    transcript_end,
+                )
+                if candidate > start
+            ),
+            start + 1.0,
+        )
+        logger.warning(
+            "секция %r имеет end <= start (%s → %s); конец исправлен по соседям",
+            section.get("title"),
+            section["start"],
+            section["end"],
+        )
+        section["end"] = format_srt_seconds(repaired)
 
 
 def _parse_json(raw_text: str) -> Any:
@@ -332,6 +382,7 @@ class GeminiStructurizer(Structurizer):
         subsplit_results.sort(key=lambda x: x[0])
 
         topics_sections: list[list[dict[str, Any]]] = [sections for _, sections in subsplit_results]
+        _repair_section_timeline(topics_sections, srt_content)
 
         v2_assignments: tuple[SlideAssignment, ...] = ()
         v2_catalog: dict[int, SlideCatalogEntry] = {}
