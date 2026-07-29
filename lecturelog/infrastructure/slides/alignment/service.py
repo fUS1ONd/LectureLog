@@ -39,6 +39,17 @@ logger = logging.getLogger(__name__)
 _NON_MATCHABLE_ROLES = {"blank"}
 
 
+def normalize_empty_entry(entry: SlideCatalogEntry) -> SlideCatalogEntry:
+    """Пустую запись модели считаем утверждением «на странице ничего нет».
+
+    Роль blank уводит слайд в приложение сразу, вместо того чтобы держать его
+    в content и безрезультатно искать доказательства по пустому payload.
+    """
+    if entry.title or entry.visible_text.strip():
+        return entry
+    return replace(entry, role="blank")
+
+
 @dataclass(frozen=True)
 class AlignmentTuning:
     candidate_limit: int = 5
@@ -203,7 +214,7 @@ class DocumentAlignmentService:
                 fallback = native_text_fallback(asset, boilerplate=boilerplate)
                 selected = entry or fallback.entry
                 if selected is not None:
-                    result[asset.slide_num] = selected
+                    result[asset.slide_num] = normalize_empty_entry(selected)
         return result, verified
 
     async def _verify(

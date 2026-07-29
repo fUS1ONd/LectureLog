@@ -8,7 +8,10 @@ from lecturelog.domain.slides import (
     SlideAssignment,
     SlideCatalogEntry,
 )
-from lecturelog.infrastructure.slides.alignment.service import DocumentAlignmentService
+from lecturelog.infrastructure.slides.alignment.service import (
+    DocumentAlignmentService,
+    normalize_empty_entry,
+)
 from lecturelog.infrastructure.srt import parse_srt_blocks
 
 
@@ -553,3 +556,20 @@ async def test_align_returns_catalog_for_render_context(tmp_path):
     assert result.assignments[0].match_status == "discussed"
     assert result.catalog[1].title == "ENIAC"
     assert result.assignments[0].slide_num == 1
+
+
+def test_empty_model_entry_becomes_blank_role():
+    """Пустая запись модели — утверждение «на странице ничего нет».
+
+    Раньше такая страница оставалась content и не могла быть привязана ничем:
+    матчинг шёл по пустому payload и молча не находил ничего.
+    """
+    entry = SlideCatalogEntry(slide_num=3, role="content", title=None, visible_text="   ")
+
+    assert normalize_empty_entry(entry).role == "blank"
+
+
+def test_non_empty_model_entry_keeps_role():
+    entry = SlideCatalogEntry(slide_num=4, role="content", title="Бэклог", visible_text="пункты")
+
+    assert normalize_empty_entry(entry).role == "content"
