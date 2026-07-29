@@ -7,6 +7,7 @@ from lecturelog.domain.slides import (
     SlideAsset,
     SlideAssignment,
     SlideCatalogEntry,
+    SlideRelation,
 )
 from lecturelog.infrastructure.slides.alignment.service import (
     DocumentAlignmentService,
@@ -234,6 +235,58 @@ def test_evidence_collision_downgrades_unrelated_verified_assignments():
 
     assert {item.assignment_confidence for item in result} == {"probable"}
     assert all(item.reason_code.endswith(":evidence_collision") for item in result)
+
+
+def _assignment(*, slide_num: int, block_ids: tuple[int, ...], confidence: str) -> SlideAssignment:
+    return SlideAssignment(
+        slide_num, "discussed", 1, block_ids, 10.0, confidence, 12.0, "semantic_strong"
+    )
+
+
+def test_two_unrelated_slides_on_one_block_are_downgraded():
+    """Два несвязанных слайда на одной реплике: минимум один из них не про неё."""
+    assignments = (
+        _assignment(slide_num=5, block_ids=(120,), confidence="verified"),
+        _assignment(slide_num=9, block_ids=(120,), confidence="verified"),
+    )
+
+    result = DocumentAlignmentService._downgrade_evidence_collisions(assignments, ())
+
+    assert [item.assignment_confidence for item in result] == ["probable", "probable"]
+
+
+def test_two_related_slides_on_one_block_keep_verified():
+    """Progressive build — законная пара: одна и та же страница в двух состояниях."""
+    assignments = (
+        _assignment(slide_num=5, block_ids=(120,), confidence="verified"),
+        _assignment(slide_num=6, block_ids=(120,), confidence="verified"),
+    )
+    relations = (
+        SlideRelation(
+            slide_num=6, kind="progressive_build", group_id="g1", canonical_slide_num=5
+        ),
+    )
+
+    result = DocumentAlignmentService._downgrade_evidence_collisions(assignments, relations)
+
+    assert [item.assignment_confidence for item in result] == ["verified", "verified"]
+
+
+def test_exact_duplicates_on_one_block_keep_verified():
+    """Дубль страницы — тоже законная пара."""
+    assignments = (
+        _assignment(slide_num=2, block_ids=(77,), confidence="verified"),
+        _assignment(slide_num=8, block_ids=(77,), confidence="verified"),
+    )
+    relations = (
+        SlideRelation(
+            slide_num=8, kind="exact_duplicate", group_id="g2", canonical_slide_num=2
+        ),
+    )
+
+    result = DocumentAlignmentService._downgrade_evidence_collisions(assignments, relations)
+
+    assert [item.assignment_confidence for item in result] == ["verified", "verified"]
 
 
 @pytest.mark.asyncio

@@ -379,10 +379,12 @@ class DocumentAlignmentService:
 
     @staticmethod
     def _downgrade_evidence_collisions(assignments, relations):
-        progressive = {
+        # Пара слайдов на одном доказательстве законна только если это одна и
+        # та же страница в двух видах: progressive build или дубль. Любая другая
+        # пара означает, что как минимум один слайд не про эту реплику.
+        related = {
             slide_num
             for relation in relations
-            if relation.kind == "progressive_build"
             for slide_num in (relation.slide_num, relation.canonical_slide_num)
         }
         by_evidence: dict[int, list[int]] = {}
@@ -390,12 +392,12 @@ class DocumentAlignmentService:
             if item.match_status != "discussed":
                 continue
             for block_id in item.evidence_block_ids:
-                if item.slide_num not in progressive:
+                if item.slide_num not in related:
                     by_evidence.setdefault(block_id, []).append(item.slide_num)
         conflicted = {
             slide_num
             for slide_nums in by_evidence.values()
-            if len(slide_nums) > 2
+            if len(slide_nums) > 1
             for slide_num in slide_nums
         }
         return tuple(
