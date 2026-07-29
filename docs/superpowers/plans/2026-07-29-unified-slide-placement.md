@@ -1012,6 +1012,169 @@ git commit -m "docs(slides): гейт слияния режимов на чет�
 
 ---
 
+---
+
+## Задачи 11–14: краевые случаи выравнивания
+
+**Порядок исполнения:** эти четыре задачи выполняются **после задачи 3 и до задачи 4**. Причина: они чинят дефекты в том же коде, который затрагивает слияние, и задача 11 пересекается с задачей 5 (обе про сегментацию Markdown).
+
+Красные тесты уже написаны и лежат в `tests/unit/slides/test_alignment_edge_cases.py`. Для каждой задачи RED-фаза уже готова: тест падает на текущем коде. Работа исполнителя — привести код в соответствие.
+
+**Общее требование ко всем четырём задачам:** тест менять нельзя, кроме случая, когда он содержит фактическую ошибку — тогда остановиться и сообщить контроллеру, а не править ожидание. Ослаблять утверждения запрещено.
+
+---
+
+### Task 11: Маркер не попадает внутрь нумерованного списка
+
+**Files:**
+- Modify: `lecturelog/infrastructure/slides/alignment/markers.py:20-29`
+- Test: `tests/unit/slides/test_alignment_edge_cases.py::test_marker_never_lands_between_list_items_so_slide_image_does_not_split_the_list`
+
+**Interfaces:**
+- Consumes: `parse_markdown_blocks(markdown) -> tuple[MarkdownBlock, ...]`, поле `MarkdownBlock.atomic`.
+- Produces: блок, начинающийся с пункта списка любого номера, помечается `atomic=True`.
+
+Первопричина: в `parse_markdown_blocks` атомарность определяется префиксами `("- ", "* ", "+ ", "> ", "1. ")`. Литерал `"1. "` покрывает только первый пункт нумерованного списка — пункты `2.`, `3.` и далее считаются обычными абзацами и годятся под якорь. Экспортёр заменяет маркер на строку `![...](...)`, поэтому картинка разрезает список надвое.
+
+- [ ] **Step 1: Убедиться, что тест падает**
+
+Run: `.venv/bin/python -m pytest "tests/unit/slides/test_alignment_edge_cases.py::test_marker_never_lands_between_list_items_so_slide_image_does_not_split_the_list" -v`
+Expected: FAIL с сообщением «маркер вставлен внутрь списка».
+
+- [ ] **Step 2: Реализовать**
+
+Заменить проверку префикса на регулярное выражение, покрывающее маркеры списка любого вида, включая нумерацию произвольным числом и оба разделителя (`.` и `)`):
+
+```python
+_LIST_PREFIX_RE = re.compile(r"^(?:[-*+]\s|\d+[.)]\s|>\s)")
+```
+
+и в цикле:
+
+```python
+        if _LIST_PREFIX_RE.match(stripped):
+            atomic = True
+```
+
+- [ ] **Step 3: Прогнать тесты**
+
+Run: `.venv/bin/python -m pytest tests/unit -q`
+Expected: целевой тест PASS. Тесты `tests/unit/slides/test_markers.py` и `tests/unit/frames/test_placement.py` — без новых падений. Если падает тест, фиксировавший прежнее поведение сегментации, разобраться и объяснить в отчёте, а не подгонять ожидание.
+
+- [ ] **Step 4: Коммит**
+
+```bash
+git add lecturelog/infrastructure/slides/alignment/markers.py tests/unit/slides/test_alignment_edge_cases.py
+git commit -m "fix(slides): не ставить маркер внутрь нумерованного списка"
+```
+
+---
+
+### Task 12: Страница progressive build сохраняет каталожную запись
+
+**Files:**
+- Modify: `lecturelog/infrastructure/slides/alignment/catalog.py`
+- Test: `tests/unit/slides/test_alignment_edge_cases.py::test_page_keeps_catalog_entry_when_boilerplate_filter_would_erase_all_its_lines`
+
+**Interfaces:**
+- Consumes: `detect_boilerplate_lines(...)`, `native_text_fallback(asset, boilerplate=...)`.
+- Produces: у страницы, все строки которой сочтены колонтитулом, каталожная запись всё равно существует.
+
+Первопричина: строки промежуточного шага сборки повторяются на всех последующих шагах, поэтому `detect_boilerplate_lines` принимает их за колонтитул колоды. У промежуточной страницы своих строк не остаётся, `native_text_fallback` возвращает `unresolved`, записи в каталоге нет — и страница получает `unmentioned` с причиной `no_supported_evidence`, хотя лектор её обсуждал.
+
+Направление решения: фильтр колонтитулов не должен обнулять страницу целиком. Если после фильтрации у страницы не осталось ни одной строки, брать её нативный текст без фильтрации. Прочитай `catalog.py` целиком перед правкой и выбери минимальное изменение, сохраняющее исходное назначение фильтра — отсечение повторяющихся колонтитулов у страниц, где есть и собственный текст.
+
+- [ ] **Step 1: Убедиться, что тест падает**
+
+Run: `.venv/bin/python -m pytest "tests/unit/slides/test_alignment_edge_cases.py::test_page_keeps_catalog_entry_when_boilerplate_filter_would_erase_all_its_lines" -v`
+Expected: FAIL — «страница 2 осталась без каталожной записи».
+
+- [ ] **Step 2: Реализовать минимальную правку в `catalog.py`**
+
+- [ ] **Step 3: Прогнать тесты**
+
+Run: `.venv/bin/python -m pytest tests/unit -q`
+Expected: целевой тест PASS; `tests/unit/slides/test_catalog.py` без новых падений. Фильтр колонтитулов обязан по-прежнему отсекать повторяющиеся строки у страниц, где есть собственный текст — если такой тест сломался, правка слишком широкая.
+
+- [ ] **Step 4: Коммит**
+
+```bash
+git add lecturelog/infrastructure/slides/alignment/catalog.py tests/unit/slides/test_alignment_edge_cases.py
+git commit -m "fix(slides): фильтр колонтитулов не обнуляет страницу целиком"
+```
+
+---
+
+### Task 13: Вердикт в форме массива доходит до независимой проверки
+
+**Files:**
+- Modify: `lecturelog/infrastructure/slides/alignment/service.py`, метод `_verify`
+- Test: `tests/unit/slides/test_alignment_edge_cases.py::test_array_shaped_strong_verdict_is_still_sent_to_the_independent_judge`
+
+**Interfaces:**
+- Consumes: `validate_semantic_response(...)` из `alignment/semantic.py` — принимает как объект, так и массив из одного объекта.
+- Produces: `_verify` читает `semantic_tier` через тот же валидатор, а не через `json.loads(raw).get(...)`.
+
+Первопричина: `_verify` достаёт tier выражением `json.loads(raw).get(...)`. Когда модель отвечает поддержанной формой `[{...}]`, `.get` вызывается на списке, возникает `AttributeError`, его глотает общий `except`, и strong-вердикт вместо независимой перепроверки уходит в слепой лексический подбор раздела.
+
+- [ ] **Step 1: Убедиться, что тест падает**
+
+Run: `.venv/bin/python -m pytest "tests/unit/slides/test_alignment_edge_cases.py::test_array_shaped_strong_verdict_is_still_sent_to_the_independent_judge" -v`
+Expected: FAIL — «strong-вердикт принят без независимой перепроверки» (сделан один вызов вместо двух).
+
+- [ ] **Step 2: Реализовать**
+
+Читать tier из результата валидации, а не из сырого JSON. Прочитай `semantic.py`, чтобы использовать существующий валидатор, и не добавляй разбор транспортной формы вторым местом в коде.
+
+- [ ] **Step 3: Прогнать тесты**
+
+Run: `.venv/bin/python -m pytest tests/unit -q`
+Expected: целевой тест PASS; `tests/unit/slides/test_semantic.py` и `test_alignment_service.py` без новых падений.
+
+- [ ] **Step 4: Коммит**
+
+```bash
+git add lecturelog/infrastructure/slides/alignment/service.py tests/unit/slides/test_alignment_edge_cases.py
+git commit -m "fix(slides): вердикт-массив тоже уходит на независимую проверку"
+```
+
+---
+
+### Task 14: Повышение вердикта судьёй сохраняет подтверждённый раздел
+
+**Files:**
+- Modify: `lecturelog/infrastructure/slides/alignment/service.py`, метод `_verify`
+- Test: `tests/unit/slides/test_alignment_edge_cases.py::test_judge_upgrading_strong_to_explicit_keeps_the_confirmed_section`
+
+**Interfaces:**
+- Consumes: значения `semantic_tier` из `alignment/schemas.py`.
+- Produces: результат независимой проверки принимается, если её вердикт не слабее `strong`; повышение до `explicit` подтверждает раздел, а не отбрасывает его.
+
+Первопричина: `_verify` принимает результат перепроверки только при строгом равенстве `semantic_tier == "strong"`. Если судья повысил вердикт до `explicit`, подтверждённое совпадение выбрасывается, и вместо него берётся результат `_global_recovery` — лексической догадки по всей лекции. Слайд молча оказывается в разделе, который модель дважды не выбирала.
+
+- [ ] **Step 1: Убедиться, что тест падает**
+
+Run: `.venv/bin/python -m pytest "tests/unit/slides/test_alignment_edge_cases.py::test_judge_upgrading_strong_to_explicit_keeps_the_confirmed_section" -v`
+Expected: FAIL — «подтверждённый судьёй раздел подменён лексической догадкой».
+
+- [ ] **Step 2: Реализовать**
+
+Сравнивать силу вердикта по порядку уровней, а не литералом. Выясни в `schemas.py` полный перечень значений `semantic_tier` и их порядок; прими вердикты уровня `strong` и выше. Порядок уровней задать одним явным кортежем в модуле, чтобы сравнение не расползлось по коду.
+
+- [ ] **Step 3: Прогнать тесты**
+
+Run: `.venv/bin/python -m pytest tests/unit -q`
+Expected: целевой тест PASS; тест из задачи 13 остаётся PASS; `test_semantic.py` без новых падений.
+
+- [ ] **Step 4: Коммит**
+
+```bash
+git add lecturelog/infrastructure/slides/alignment/service.py tests/unit/slides/test_alignment_edge_cases.py
+git commit -m "fix(slides): повышенный вердикт судьи подтверждает раздел"
+```
+
+---
+
 ## Самопроверка плана
 
 **Покрытие спеки.** Все разделы спеки имеют задачу: OPEN-QUESTIONS → задачи 1–3; характеризационные тесты → 4; единая сегментация и маркеры → 5; окно в retrieval → 6; каталог кадров, доменный инвариант, deck guard мимо видео → 7; фолбэк по времени → 8; пайплайн и удаление ручного размещения → 9; гейт → 10. Не-цели (задача 11 плана v2, улучшение качества видео) задач не имеют сознательно.
